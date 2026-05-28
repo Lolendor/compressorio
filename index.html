@@ -646,8 +646,69 @@ async function compressPng(bytes, opts, onProgress) {
   if (result.error) throw new Error(result.error);
   return { data: result.data, stats: result.stats };
 }
+// ---- JPEG metadata helpers ----
+
+// Extract all APP1 (EXIF) and APP2 (ICC_PROFILE) segments from a JPEG.
+// Returns an array of raw segment bytes (including the FFE1/FFE2 marker and
+// length bytes) suitable for direct re-insertion into another JPEG.
+function extractJpegMetadata(bytes) {
+  const segments = [];
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return segments;
+  let pos = 2;
+  while (pos < bytes.length - 1) {
+    if (bytes[pos] !== 0xff) { pos++; continue; }
+    // skip 0xff fill bytes
+    while (pos < bytes.length && bytes[pos] === 0xff) pos++;
+    const marker = bytes[pos++];
+    if (marker === 0x00 || marker === 0xd9) continue;
+    // restart markers - no length
+    if (marker >= 0xd0 && marker <= 0xd7) continue;
+    // start of scan - stop scanning meta
+    if (marker === 0xda || marker === 0xc0 || marker === 0xc1 || marker === 0xc2) break;
+    const segLen = (bytes[pos] << 8) | bytes[pos+1];
+    // Only keep APP2 (ICC profile). compressor.io discards EXIF (APP1)
+    // and Photoshop IRB (APP13) — we mirror that behaviour for byte-exact
+    // parity and to maximise compression.
+    if (marker === 0xe2) {
+      // Slice the FULL chunk: FF + marker + length(2) + data
+      const start = pos - 2;
+      const end = pos + segLen;
+      segments.push(bytes.slice(start, end));
+    }
+    pos += segLen;
+  }
+  return segments;
+}
+
+// Inject the given metadata segments immediately after the JFIF (APP0)
+// chunk in a freshly encoded JPEG. If no JFIF is present, inject right
+// after SOI.
+function injectJpegMetadata(jpgBytes, segments) {
+  if (!segments.length) return jpgBytes;
+  if (jpgBytes[0] !== 0xff || jpgBytes[1] !== 0xd8) return jpgBytes;
+  let insertAt = 2; // right after SOI by default
+  // If APP0 (JFIF) is the first segment, insert *after* it.
+  if (jpgBytes[2] === 0xff && jpgBytes[3] === 0xe0) {
+    const app0Len = (jpgBytes[4] << 8) | jpgBytes[5];
+    insertAt = 4 + app0Len;
+  }
+  const totalExtra = segments.reduce((s, seg) => s + seg.byteLength, 0);
+  const out = new Uint8Array(jpgBytes.byteLength + totalExtra);
+  out.set(jpgBytes.subarray(0, insertAt), 0);
+  let p = insertAt;
+  for (const seg of segments) {
+    out.set(seg, p);
+    p += seg.byteLength;
+  }
+  out.set(jpgBytes.subarray(insertAt), p);
+  return out;
+}
+
 async function compressJpg(bytes, opts, onProgress) {
   onProgress(0.3); await new Promise(r => setTimeout(r, 10));
+  // Grab ICC profile + EXIF so we can re-insert them after encoding
+  // (compressor.io behaves the same way — it keeps the ICC).
+  const meta = extractJpegMetadata(bytes);
   const decoded = mjDec.decode(bytes, {});
   onProgress(0.6); await new Promise(r => setTimeout(r, 10));
   const q = opts.quality;
@@ -665,8 +726,12 @@ async function compressJpg(bytes, opts, onProgress) {
     separate_chroma_quality: false,
     chroma_quality: opts.lossless ? 100 : q,
   });
+  // Re-attach the original ICC profile / EXIF so the browser keeps the
+  // intended color gamut (Display P3, Adobe RGB, etc.) — without this
+  // step a P3 source rendered as sRGB and reds looked washed out.
+  const withMeta = injectJpegMetadata(new Uint8Array(encoded), meta);
   onProgress(1.0);
-  return { data: new Uint8Array(encoded), stats: { width: decoded.width, height: decoded.height } };
+  return { data: withMeta, stats: { width: decoded.width, height: decoded.height } };
 }
 async function compressWebp(bytes, opts, onProgress) {
   onProgress(0.2); await new Promise(r => setTimeout(r, 10));
