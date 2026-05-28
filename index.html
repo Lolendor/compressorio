@@ -48,8 +48,9 @@
   .hero h1 .strong { font-weight: 900; }
   .pill { display: inline-block; padding: 14px 28px; border: 2px solid var(--red); border-radius: 8px; color: var(--red); font-weight: 800; font-size: 16px; background: white; margin-top: 8px; }
 
-  /* Compression type tabs */
-  .ctype-row { position: relative; z-index: 5; max-width: 1100px; margin: 0 auto; display: flex; justify-content: flex-end; padding: 20px 40px 0; align-items: center; gap: 14px; }
+  /* Compression type + output format row */
+  .ctype-row { position: relative; z-index: 5; max-width: 1100px; margin: 0 auto; display: flex; justify-content: flex-end; padding: 20px 40px 0; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .ctype-group { display: flex; align-items: center; gap: 10px; }
   .ctype-label { color: var(--text); font-weight: 800; font-size: 13px; letter-spacing: 1px; }
   .ctype-help { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: white; color: var(--text-muted); font-size: 11px; font-weight: 800; border: 1.5px solid var(--text-muted); cursor: help; }
   .ctype-tabs { display: flex; border-radius: 6px; overflow: hidden; background: white; box-shadow: var(--shadow); border: 1px solid var(--border); }
@@ -57,6 +58,20 @@
   .ctype-tabs button + button { border-left: 1px solid var(--border); }
   .ctype-tabs button:hover { background: var(--pink-bg); }
   .ctype-tabs button.active { background: var(--red); color: white; }
+  .ctype-select {
+    font-family: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;
+    color: var(--text); background: white;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 32px 10px 16px; cursor: pointer;
+    box-shadow: var(--shadow); transition: border-color .15s, color .15s;
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%232F2A29' d='M0 0l5 6 5-6z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+  .ctype-select:hover { border-color: var(--red); color: var(--red); }
+  .ctype-select:focus { outline: none; border-color: var(--red); }
+  .ctype-select.active-convert { border-color: var(--red); color: var(--red); }
 
   /* Drop zone */
   .drop-wrap { position: relative; z-index: 5; max-width: 1100px; margin: 16px auto 0; padding: 0 40px; }
@@ -297,10 +312,12 @@
     .hero h1 { font-size: 32px; letter-spacing: -0.5px; margin-bottom: 14px; }
     .pill { font-size: 12px; padding: 10px 16px; letter-spacing: 0.3px; }
 
-    .ctype-row { padding: 14px 14px 0; gap: 8px; font-size: 11px; }
+    .ctype-row { padding: 14px 14px 0; gap: 12px; font-size: 11px; flex-direction: column; align-items: stretch; }
+    .ctype-group { flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
     .ctype-label { font-size: 11px; letter-spacing: 0.5px; }
-    .ctype-tabs { width: 100%; }
+    .ctype-tabs { flex: 1; min-width: 0; }
     .ctype-tabs button { flex: 1; padding: 10px 8px; font-size: 11px; letter-spacing: 0.3px; }
+    .ctype-select { flex: 1; min-width: 0; font-size: 11px; padding: 9px 28px 9px 12px; }
 
     .drop-wrap, .filelist-wrap, .controls { padding-left: 14px; padding-right: 14px; }
     .drop { padding: 32px 16px; border-width: 2px; }
@@ -397,13 +414,26 @@
 </section>
 
 <div class="ctype-row">
-  <span class="ctype-label">COMPRESSION TYPE</span>
-  <span class="ctype-help" title="LOSSY = compressor.io defaults · LOSSLESS = max quality · CUSTOM = your own settings">?</span>
-  <span class="ctype-label">:</span>
-  <div class="ctype-tabs" id="ctypeTabs">
-    <button data-mode="lossy" class="active">LOSSY</button>
-    <button data-mode="lossless">LOSSLESS</button>
-    <button data-mode="custom">CUSTOM</button>
+  <div class="ctype-group">
+    <span class="ctype-label">OUTPUT FORMAT</span>
+    <span class="ctype-help" title="Original = keep input format · or convert to JPG/PNG/WebP. GIF & SVG are kept as-is.">?</span>
+    <span class="ctype-label">:</span>
+    <select class="ctype-select" id="outputFormat">
+      <option value="original">ORIGINAL</option>
+      <option value="jpg">JPG</option>
+      <option value="png">PNG</option>
+      <option value="webp">WEBP</option>
+    </select>
+  </div>
+  <div class="ctype-group">
+    <span class="ctype-label">COMPRESSION TYPE</span>
+    <span class="ctype-help" title="LOSSY = compressor.io defaults · LOSSLESS = max quality · CUSTOM = your own settings">?</span>
+    <span class="ctype-label">:</span>
+    <div class="ctype-tabs" id="ctypeTabs">
+      <button data-mode="lossy" class="active">LOSSY</button>
+      <button data-mode="lossless">LOSSLESS</button>
+      <button data-mode="custom">CUSTOM</button>
+    </div>
   </div>
 </div>
 
@@ -583,6 +613,16 @@ $('ctypeTabs').addEventListener('click', e => {
   if (e.target.tagName === 'BUTTON' && e.target.dataset.mode) applyMode(e.target.dataset.mode);
 });
 applyMode('lossy');
+
+// ============================================================
+//  Output format (default 'original' = keep input format)
+// ============================================================
+let outputFormat = 'original';
+const outputFormatEl = $('outputFormat');
+outputFormatEl.addEventListener('change', () => {
+  outputFormat = outputFormatEl.value;
+  outputFormatEl.classList.toggle('active-convert', outputFormat !== 'original');
+});
 
 // ============================================================
 //  Format detection + per-format compress (same as before)
@@ -780,6 +820,119 @@ async function compressSvg(bytes, opts, onProgress) {
 }
 
 // ============================================================
+//  Cross-format conversion (decode → re-encode to target)
+// ============================================================
+
+// Decode any supported source into raw RGBA pixels.
+// Returns { data: Uint8ClampedArray, width, height }.
+async function decodeToRGBA(bytes, type) {
+  // mozjpeg / libwebp expose native decoders that give us RGBA directly.
+  if (type === 'jpg') {
+    const d = mjDec.decode(bytes, {});
+    return { data: new Uint8ClampedArray(d.data), width: d.width, height: d.height };
+  }
+  if (type === 'webp') {
+    const d = wpDec.decode(bytes);
+    return { data: new Uint8ClampedArray(d.data), width: d.width, height: d.height };
+  }
+  // PNG / GIF (first frame) / SVG → use the browser's image decoder.
+  let mime;
+  if (type === 'png') mime = 'image/png';
+  else if (type === 'gif') mime = 'image/gif';
+  else if (type === 'svg') mime = 'image/svg+xml';
+  else mime = 'image/png';
+
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('decode failed for ' + type));
+      i.src = url;
+    });
+    let w = img.naturalWidth, h = img.naturalHeight;
+    // SVG without intrinsic size — fall back to a reasonable default
+    // so users get something instead of a 0×0 canvas error.
+    if (!w || !h) { w = 1024; h = 1024; }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    const imgData = ctx.getImageData(0, 0, w, h);
+    return { data: imgData.data, width: w, height: h };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Encode RGBA pixels into the target format.
+async function encodeRGBATo(target, rgba, width, height, opts) {
+  if (target === 'jpg') {
+    const encoded = mjEnc.encode(rgba, width, height, {
+      quality: opts.lossless ? 100 : opts.quality,
+      baseline: false, arithmetic: false, progressive: true,
+      optimize_coding: true, smoothing: 0, color_space: 3, quant_table: 3,
+      trellis_multipass: false, trellis_opt_zero: false, trellis_opt_table: false, trellis_loops: 1,
+      auto_subsample: !opts.lossless, chroma_subsample: opts.lossless ? 1 : 2,
+      separate_chroma_quality: false,
+      chroma_quality: opts.lossless ? 100 : opts.quality,
+    });
+    return new Uint8Array(encoded);
+  }
+  if (target === 'webp') {
+    const encoded = wpEnc.encode(rgba, width, height, {
+      quality: opts.lossless ? 100 : opts.quality,
+      target_size: 0, target_PSNR: 0,
+      method: opts.lossless ? 6 : 4, sns_strength: 50,
+      filter_strength: 60, filter_sharpness: 0, filter_type: 1, partitions: 0,
+      segments: 4, pass: 1, show_compressed: 0, preprocessing: 0, autofilter: 0,
+      partition_limit: 0, alpha_compression: 1, alpha_filtering: 1, alpha_quality: 100,
+      lossless: opts.lossless ? 1 : 0, exact: opts.lossless ? 1 : 0,
+      image_hint: 0, emulate_jpeg_size: 0, thread_level: 0, low_memory: 0,
+      near_lossless: 100, use_delta_palette: 0, use_sharp_yuv: 0,
+    });
+    return new Uint8Array(encoded);
+  }
+  if (target === 'png') {
+    // Canvas → PNG (always lossless). For LOSSY mode on PNG output we
+    // could optionally run pngquant on top via window.compressPNG, but
+    // that re-introduces palette quantization across all sources, which
+    // surprises users converting photos to PNG. Keep canvas PNG simple.
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const imgData = new ImageData(rgba instanceof Uint8ClampedArray ? rgba : new Uint8ClampedArray(rgba), width, height);
+    ctx.putImageData(imgData, 0, 0);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    if (!blob) throw new Error('PNG encode failed');
+
+    let out = new Uint8Array(await blob.arrayBuffer());
+    // For LOSSY mode also run pngquant for a real size win.
+    if (!opts.lossless && window.compressPNG) {
+      try {
+        const q = window.compressPNG(out, opts, () => {});
+        if (!q.error && q.data && q.data.byteLength < out.byteLength) {
+          out = q.data;
+        }
+      } catch (_) { /* fall back to canvas PNG */ }
+    }
+    return out;
+  }
+  throw new Error('Unsupported target format: ' + target);
+}
+
+// Convert a source file to a different output format.
+async function convertTo(target, bytes, sourceType, opts, onProgress) {
+  onProgress(0.1); await new Promise(r => setTimeout(r, 10));
+  const { data, width, height } = await decodeToRGBA(bytes, sourceType);
+  onProgress(0.5); await new Promise(r => setTimeout(r, 10));
+  const out = await encodeRGBATo(target, data, width, height, opts);
+  onProgress(1.0);
+  return { data: out, stats: { width, height } };
+}
+
+// ============================================================
 //  File queue with parallel workers
 // ============================================================
 const items = [];      // [{ id, file, type, bytes, status, progress, outBytes, outType, error }]
@@ -831,7 +984,10 @@ function renderRow(it) {
   if (it.type) {
     const badge = document.createElement('span');
     badge.className = 'badge';
-    badge.textContent = it.type;
+    // Show "jpg → webp" when transcoded so the conversion is visible.
+    badge.textContent = (it.outType && it.outType !== it.type)
+      ? `${it.type} → ${it.outType}`
+      : it.type;
     tdName.appendChild(badge);
   }
   tr.appendChild(tdName);
@@ -959,24 +1115,42 @@ async function processOne(it) {
       renderRow_inplace(it);
     };
 
+    // Decide whether to transcode to a different output format.
+    // GIF (potential animation) and SVG (vector) are kept as-is even when
+    // a target is selected — converting them would lose semantics:
+    // GIF→raster drops every frame after the first; SVG→raster forfeits
+    // infinite scalability. The user said "ну кроме svg наверное" — we
+    // extend that to GIF for the same reason.
+    const targetFmt = (outputFormat !== 'original'
+                       && it.type !== 'svg'
+                       && it.type !== 'gif')
+                      ? outputFormat : null;
+
     let res;
-    if (it.type === 'jpg')      res = await compressJpg(buf, opts, onProgress);
-    else if (it.type === 'webp')res = await compressWebp(buf, opts, onProgress);
-    else if (it.type === 'gif') res = await compressGif(buf, opts, onProgress);
-    else if (it.type === 'svg') res = await compressSvg(buf, opts, onProgress);
-    else                        res = await compressPng(buf, opts, onProgress);
+    if (targetFmt && targetFmt !== it.type) {
+      res = await convertTo(targetFmt, buf, it.type, opts, onProgress);
+      it.outType = targetFmt;
+    } else {
+      if (it.type === 'jpg')      res = await compressJpg(buf, opts, onProgress);
+      else if (it.type === 'webp')res = await compressWebp(buf, opts, onProgress);
+      else if (it.type === 'gif') res = await compressGif(buf, opts, onProgress);
+      else if (it.type === 'svg') res = await compressSvg(buf, opts, onProgress);
+      else                        res = await compressPng(buf, opts, onProgress);
+      it.outType = it.type;
+    }
 
     let outBytes = res.data;
     // Smart fallback: if compression made the file LARGER (typical for
     // LOSSLESS mode on already-compressed JPGs/WebPs), keep the original
     // bytes instead. The user still gets a "done" state, just with 0%
     // saved. Skip the fallback in CUSTOM mode so power users can see
-    // what their settings actually produce.
-    if (mode !== 'custom' && outBytes.byteLength > buf.byteLength) {
+    // what their settings actually produce. Also skip when we transcoded
+    // to a different format — there the user explicitly asked for the
+    // new format, even if it happens to be larger.
+    if (mode !== 'custom' && !targetFmt && outBytes.byteLength > buf.byteLength) {
       outBytes = buf;
     }
     it.outBytes = outBytes;
-    it.outType  = it.type;
     it.status   = 'done';
     it.progress = 1;
   } catch (e) {
@@ -993,8 +1167,13 @@ async function processOne(it) {
 function mimeFor(type) {
   return ({ jpg: 'image/jpeg', webp: 'image/webp', png: 'image/png', gif: 'image/gif', svg: 'image/svg+xml' })[type] || 'application/octet-stream';
 }
-function extFor(type) {
-  return ({ jpg: '.min.jpg', webp: '.min.webp', png: '.min.png', gif: '.min.gif', svg: '.min.svg' })[type] || '.bin';
+// When format is unchanged → "<name>.min.<ext>".
+// When converted → "<name>.<ext>" (no .min — clearer that the format changed).
+function suffixFor(it) {
+  const sourceType = it.type;
+  const out = it.outType;
+  const ext = ({ jpg: 'jpg', webp: 'webp', png: 'png', gif: 'gif', svg: 'svg' })[out] || 'bin';
+  return (out === sourceType ? '.min.' : '.') + ext;
 }
 
 function downloadOne(it) {
@@ -1003,7 +1182,7 @@ function downloadOne(it) {
   const base = it.file.name.replace(/\.[^.]+$/, '');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = base + extFor(it.outType);
+  a.download = base + suffixFor(it);
   a.click();
 }
 
