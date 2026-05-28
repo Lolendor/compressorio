@@ -744,6 +744,261 @@ function injectJpegMetadata(jpgBytes, segments) {
   return out;
 }
 
+// ---- Raw ICC profile extraction (works across source formats) ----
+//
+// Returns just the ICC profile *payload* (i.e. the .icc bytes themselves,
+// without any container-specific framing). This is what we need to embed
+// into a different output format. Returns null if no profile present.
+function extractIccProfile(bytes, type) {
+  if (type === 'jpg') return extractIccFromJpeg(bytes);
+  if (type === 'png') return extractIccFromPng(bytes);
+  if (type === 'webp') return extractIccFromWebp(bytes);
+  return null;
+}
+
+// JPEG ICC profiles can span multiple APP2 segments. Each starts with the
+// signature "ICC_PROFILE\0" followed by chunk-index + chunk-count bytes.
+// We reassemble all chunks in order into a single Uint8Array.
+function extractIccFromJpeg(bytes) {
+  const SIG = [0x49,0x43,0x43,0x5f,0x50,0x52,0x4f,0x46,0x49,0x4c,0x45,0x00]; // "ICC_PROFILE\0"
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+  let pos = 2;
+  const chunks = []; // [{ idx, data }]
+  let total = 0;
+  while (pos < bytes.length - 1) {
+    if (bytes[pos] !== 0xff) { pos++; continue; }
+    while (pos < bytes.length && bytes[pos] === 0xff) pos++;
+    const marker = bytes[pos++];
+    if (marker === 0x00 || marker === 0xd9) continue;
+    if (marker >= 0xd0 && marker <= 0xd7) continue;
+    if (marker === 0xda || marker === 0xc0 || marker === 0xc1 || marker === 0xc2) break;
+    const segLen = (bytes[pos] << 8) | bytes[pos+1];
+    if (marker === 0xe2 && segLen > 16) {
+      // Check signature
+      let match = true;
+      for (let i = 0; i < SIG.length; i++) {
+        if (bytes[pos + 2 + i] !== SIG[i]) { match = false; break; }
+      }
+      if (match) {
+        const idx = bytes[pos + 2 + SIG.length];
+        const cnt = bytes[pos + 2 + SIG.length + 1];
+        const dataStart = pos + 2 + SIG.length + 2;
+        const dataEnd = pos + segLen;
+        chunks.push({ idx, total: cnt, data: bytes.slice(dataStart, dataEnd) });
+        total += dataEnd - dataStart;
+      }
+    }
+    pos += segLen;
+  }
+  if (!chunks.length) return null;
+  chunks.sort((a, b) => a.idx - b.idx);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) { out.set(c.data, o); o += c.data.length; }
+  return out;
+}
+
+// PNG ICC read is not currently needed (we route PNG sources through the
+// browser canvas which already color-manages to sRGB before we touch the
+// pixels). Stubbed for completeness.
+function extractIccFromPng(_bytes) { return null; }
+
+// WebP: look for ICCP chunk inside the RIFF container.
+function extractIccFromWebp(bytes) {
+  if (bytes[0] !== 0x52 || bytes[1] !== 0x49) return null;
+  let pos = 12; // skip RIFF header + 'WEBP'
+  while (pos + 8 <= bytes.length) {
+    const t = String.fromCharCode(bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]);
+    const len = bytes[pos+4] | (bytes[pos+5]<<8) | (bytes[pos+6]<<16) | (bytes[pos+7]<<24);
+    if (t === 'ICCP') {
+      return bytes.slice(pos + 8, pos + 8 + len);
+    }
+    // Chunks are padded to even byte boundaries.
+    pos += 8 + len + (len & 1);
+  }
+  return null;
+}
+
+// Async deflate via the native CompressionStream API (Safari 16.4+,
+// all evergreens). We use it to wrap the raw ICC payload for PNG iCCP
+// chunks. No external pako dependency required.
+async function deflateAsync(bytes) {
+  const cs = new CompressionStream('deflate');
+  const stream = new Blob([bytes]).stream().pipeThrough(cs);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+// ---- ICC profile injection into WebP / PNG ----
+
+// Insert an ICCP chunk into a WebP RIFF container. Per the WebP spec, when
+// ICCP is present, the VP8X (extended) header must be present and its
+// "has ICC profile" flag set. If the encoder produced a simple VP8/VP8L
+// file, we upgrade it to VP8X first.
+function injectIccIntoWebp(webpBytes, icc) {
+  if (!icc || !icc.length) return webpBytes;
+  if (webpBytes[0] !== 0x52 || webpBytes[1] !== 0x49) return webpBytes; // not RIFF
+  // Read 'WEBP' magic.
+  if (String.fromCharCode(webpBytes[8], webpBytes[9], webpBytes[10], webpBytes[11]) !== 'WEBP') return webpBytes;
+
+  const chunks = []; // [{type, data}]
+  let pos = 12;
+  while (pos + 8 <= webpBytes.length) {
+    const t = String.fromCharCode(webpBytes[pos], webpBytes[pos+1], webpBytes[pos+2], webpBytes[pos+3]);
+    const len = webpBytes[pos+4] | (webpBytes[pos+5]<<8) | (webpBytes[pos+6]<<16) | (webpBytes[pos+7]<<24);
+    chunks.push({ type: t, data: webpBytes.slice(pos + 8, pos + 8 + len) });
+    pos += 8 + len + (len & 1);
+  }
+  if (!chunks.length) return webpBytes;
+
+  // Find image dimensions + alpha info from the first VP8/VP8L/VP8X chunk.
+  let width = 0, height = 0, hasAlpha = 0, hasAnim = 0;
+  const first = chunks[0];
+  if (first.type === 'VP8X') {
+    width  = 1 + (first.data[4] | (first.data[5] << 8) | (first.data[6] << 16));
+    height = 1 + (first.data[7] | (first.data[8] << 8) | (first.data[9] << 16));
+    hasAlpha = (first.data[0] >> 4) & 1;
+    hasAnim  = (first.data[0] >> 1) & 1;
+  } else if (first.type === 'VP8 ') {
+    // VP8 (lossy) keyframe layout:
+    //   bytes 0..2  : frame tag
+    //   bytes 3..5  : start code 0x9d 0x01 0x2a
+    //   bytes 6..7  : 14-bit width  (+ 2-bit horizontal scale)
+    //   bytes 8..9  : 14-bit height (+ 2-bit vertical scale)
+    const d = first.data;
+    width  = (d[6] | (d[7] << 8)) & 0x3fff;
+    height = (d[8] | (d[9] << 8)) & 0x3fff;
+  } else if (first.type === 'VP8L') {
+    // VP8L: 1 byte signature (0x2f) then 14-bit (w-1) + 14-bit (h-1) + alpha
+    const d = first.data;
+    width  = 1 + (((d[1]) | (d[2] << 8)) & 0x3fff);
+    height = 1 + (((d[2] >> 6) | (d[3] << 2) | (d[4] << 10)) & 0x3fff);
+    hasAlpha = (d[4] >> 4) & 1;
+  } else {
+    // Unknown layout — bail and return the original.
+    return webpBytes;
+  }
+  if (!width || !height) return webpBytes;
+
+  // Build new VP8X chunk (10 bytes payload).
+  const vp8x = new Uint8Array(10);
+  // Flags: ICC profile = bit 5 (0x20). Preserve alpha/anim flags.
+  vp8x[0] = 0x20 | (hasAlpha ? 0x10 : 0) | (hasAnim ? 0x02 : 0);
+  vp8x[1] = 0; vp8x[2] = 0; vp8x[3] = 0;
+  const w1 = width - 1, h1 = height - 1;
+  vp8x[4] = w1 & 0xff; vp8x[5] = (w1 >> 8) & 0xff; vp8x[6] = (w1 >> 16) & 0xff;
+  vp8x[7] = h1 & 0xff; vp8x[8] = (h1 >> 8) & 0xff; vp8x[9] = (h1 >> 16) & 0xff;
+
+  // Reorder/replace: VP8X first, then ICCP, then any pre-existing chunks
+  // (skipping any old VP8X / ICCP).
+  const outChunks = [
+    { type: 'VP8X', data: vp8x },
+    { type: 'ICCP', data: icc },
+  ];
+  for (const c of chunks) {
+    if (c.type === 'VP8X' || c.type === 'ICCP') continue;
+    outChunks.push(c);
+  }
+
+  // Serialize.
+  let bodyLen = 4; // 'WEBP' magic
+  for (const c of outChunks) bodyLen += 8 + c.data.length + (c.data.length & 1);
+  const out = new Uint8Array(8 + bodyLen);
+  // RIFF header
+  out[0] = 0x52; out[1] = 0x49; out[2] = 0x46; out[3] = 0x46; // 'RIFF'
+  out[4] = bodyLen & 0xff; out[5] = (bodyLen >> 8) & 0xff;
+  out[6] = (bodyLen >> 16) & 0xff; out[7] = (bodyLen >>> 24) & 0xff;
+  // 'WEBP'
+  out[8] = 0x57; out[9] = 0x45; out[10] = 0x42; out[11] = 0x50;
+  let o = 12;
+  for (const c of outChunks) {
+    out[o++] = c.type.charCodeAt(0);
+    out[o++] = c.type.charCodeAt(1);
+    out[o++] = c.type.charCodeAt(2);
+    out[o++] = c.type.charCodeAt(3);
+    const l = c.data.length;
+    out[o++] = l & 0xff; out[o++] = (l >> 8) & 0xff;
+    out[o++] = (l >> 16) & 0xff; out[o++] = (l >>> 24) & 0xff;
+    out.set(c.data, o); o += l;
+    if (l & 1) out[o++] = 0; // pad
+  }
+  return out;
+}
+
+// Build a PNG iCCP chunk and insert it right after the IHDR chunk.
+async function injectIccIntoPng(pngBytes, icc) {
+  if (!icc || !icc.length) return pngBytes;
+  if (pngBytes[0] !== 0x89 || pngBytes[1] !== 0x50) return pngBytes;
+  // Find IHDR end (first chunk after the 8-byte signature).
+  let pos = 8;
+  const ihdrLen = (pngBytes[pos]<<24) | (pngBytes[pos+1]<<16) | (pngBytes[pos+2]<<8) | pngBytes[pos+3];
+  if (String.fromCharCode(pngBytes[pos+4], pngBytes[pos+5], pngBytes[pos+6], pngBytes[pos+7]) !== 'IHDR') {
+    return pngBytes;
+  }
+  const ihdrEnd = pos + 12 + ihdrLen; // length(4) + type(4) + data + crc(4)
+
+  // Strip any existing iCCP / sRGB / gAMA chunks (they would conflict).
+  const filtered = [];
+  filtered.push(pngBytes.subarray(0, ihdrEnd));
+  let p = ihdrEnd;
+  while (p + 12 <= pngBytes.length) {
+    const len = (pngBytes[p]<<24) | (pngBytes[p+1]<<16) | (pngBytes[p+2]<<8) | pngBytes[p+3];
+    const t = String.fromCharCode(pngBytes[p+4], pngBytes[p+5], pngBytes[p+6], pngBytes[p+7]);
+    const chunkEnd = p + 12 + len;
+    if (t !== 'iCCP' && t !== 'sRGB' && t !== 'gAMA') {
+      filtered.push(pngBytes.subarray(p, chunkEnd));
+    }
+    p = chunkEnd;
+  }
+
+  // Build the iCCP chunk: name "icc" + null + compression(0) + deflate(icc).
+  const compressed = await deflateAsync(icc);
+  const nameBytes = [0x69, 0x63, 0x63, 0x00]; // "icc\0"
+  const dataLen = nameBytes.length + 1 + compressed.length; // +1 for compression method
+  const chunk = new Uint8Array(12 + dataLen);
+  // length
+  chunk[0] = (dataLen >>> 24) & 0xff; chunk[1] = (dataLen >>> 16) & 0xff;
+  chunk[2] = (dataLen >>> 8) & 0xff;  chunk[3] = dataLen & 0xff;
+  // type 'iCCP'
+  chunk[4] = 0x69; chunk[5] = 0x43; chunk[6] = 0x43; chunk[7] = 0x50;
+  // data
+  let q = 8;
+  chunk.set(nameBytes, q); q += nameBytes.length;
+  chunk[q++] = 0; // compression method = deflate
+  chunk.set(compressed, q); q += compressed.length;
+  // CRC over type + data
+  const crc = crc32Range(chunk, 4, q);
+  chunk[q++] = (crc >>> 24) & 0xff; chunk[q++] = (crc >>> 16) & 0xff;
+  chunk[q++] = (crc >>> 8) & 0xff;  chunk[q++] = crc & 0xff;
+
+  // Splice: header+IHDR, then iCCP, then the rest.
+  const head = filtered[0];
+  const tailParts = filtered.slice(1);
+  const total = head.length + chunk.length + tailParts.reduce((s, x) => s + x.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  out.set(head, o); o += head.length;
+  out.set(chunk, o); o += chunk.length;
+  for (const part of tailParts) { out.set(part, o); o += part.length; }
+  return out;
+}
+
+// CRC-32 helper for PNG iCCP chunk. Computes CRC over bytes[start..end).
+function crc32Range(bytes, start, end) {
+  if (!crc32Range._table) {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    crc32Range._table = t;
+  }
+  const T = crc32Range._table;
+  let c = 0xFFFFFFFF;
+  for (let i = start; i < end; i++) c = T[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
 async function compressJpg(bytes, opts, onProgress) {
   onProgress(0.3); await new Promise(r => setTimeout(r, 10));
   // Grab ICC profile + EXIF so we can re-insert them after encoding
@@ -922,14 +1177,75 @@ async function encodeRGBATo(target, rgba, width, height, opts) {
   throw new Error('Unsupported target format: ' + target);
 }
 
-// Convert a source file to a different output format.
+// Convert a source file to a different output format. Preserves the
+// embedded ICC color profile across the transcode — without this, a
+// Display-P3 / Adobe-RGB JPG decoded by mozjpeg yields raw RGB samples
+// that the browser then displays as sRGB, so wide-gamut reds shift
+// cooler. We extract the source ICC and re-embed it in the target.
 async function convertTo(target, bytes, sourceType, opts, onProgress) {
-  onProgress(0.1); await new Promise(r => setTimeout(r, 10));
+  onProgress(0.05); await new Promise(r => setTimeout(r, 10));
+  // Only JPG and WebP source paths give us raw, non-color-managed samples
+  // (mozjpeg/libwebp decoders ignore the embedded profile). PNG/GIF/SVG
+  // go through the browser canvas which already applies the source ICC
+  // and gives us sRGB pixels, so re-embedding would double-apply.
+  const icc = (sourceType === 'jpg' || sourceType === 'webp')
+              ? extractIccProfile(bytes, sourceType)
+              : null;
   const { data, width, height } = await decodeToRGBA(bytes, sourceType);
   onProgress(0.5); await new Promise(r => setTimeout(r, 10));
-  const out = await encodeRGBATo(target, data, width, height, opts);
+  let out = await encodeRGBATo(target, data, width, height, opts);
+  onProgress(0.85);
+
+  // Re-attach ICC profile to the new container. Each target format
+  // stores it differently:
+  //   JPG  → APP2 segment (handled below via injectJpegMetadata).
+  //   WebP → ICCP RIFF chunk + VP8X header upgrade.
+  //   PNG  → iCCP chunk (deflate-compressed profile).
+  if (icc && icc.length) {
+    try {
+      if (target === 'webp') {
+        out = injectIccIntoWebp(out, icc);
+      } else if (target === 'png') {
+        out = await injectIccIntoPng(out, icc);
+      } else if (target === 'jpg') {
+        // Wrap the raw ICC into a (possibly multi-segment) APP2 chunk
+        // and inject via the existing JPEG path.
+        const seg = buildJpegIccApp2(icc);
+        out = injectJpegMetadata(out, seg);
+      }
+    } catch (e) {
+      console.warn('ICC re-embedding failed for ' + target + ':', e);
+    }
+  }
   onProgress(1.0);
   return { data: out, stats: { width, height } };
+}
+
+// Wrap a raw ICC profile blob into one or more JPEG APP2 segments
+// (signature "ICC_PROFILE\0" + chunk index + chunk count + payload).
+// Each segment must fit in 65533 bytes total (2-byte length covers
+// itself, so payload max ≈ 65519 incl. 14-byte header).
+function buildJpegIccApp2(icc) {
+  const SIG = [0x49,0x43,0x43,0x5f,0x50,0x52,0x4f,0x46,0x49,0x4c,0x45,0x00];
+  const MAX_PAYLOAD = 65519; // 65535 - 2 (length) - 14 (sig+idx+cnt)
+  const chunks = [];
+  for (let p = 0; p < icc.length; p += MAX_PAYLOAD) {
+    chunks.push(icc.slice(p, Math.min(p + MAX_PAYLOAD, icc.length)));
+  }
+  const segments = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const payload = chunks[i];
+    const segLen = 2 + SIG.length + 2 + payload.length; // length field includes itself
+    const seg = new Uint8Array(4 + SIG.length + 2 + payload.length); // FF E2 + length + sig + idx + cnt + payload
+    seg[0] = 0xff; seg[1] = 0xe2;
+    seg[2] = (segLen >> 8) & 0xff; seg[3] = segLen & 0xff;
+    seg.set(SIG, 4);
+    seg[4 + SIG.length] = i + 1;       // chunk index (1-based per spec)
+    seg[4 + SIG.length + 1] = chunks.length;
+    seg.set(payload, 4 + SIG.length + 2);
+    segments.push(seg);
+  }
+  return segments;
 }
 
 // ============================================================
