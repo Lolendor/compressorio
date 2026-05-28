@@ -211,26 +211,38 @@
     display: flex; align-items: center; justify-content: center;
     padding: 24px; min-height: 320px;
   }
-  /* Image compare slider */
+  /* Image compare slider — sizes itself to the image's natural aspect
+     ratio, constrained by available modal-body space. */
   .compare {
     position: relative;
-    width: 100%; max-width: 1000px;
+    /* Shrink to image size; never exceed available viewport area. */
+    max-width: min(1000px, 100%);
+    max-height: 100%;
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
     touch-action: none;
     border-radius: 8px;
     background: #000;
+    /* Flex so the bg image dictates the container size. */
+    display: inline-flex;
   }
-  .compare img {
-    display: block; width: 100%; height: auto;
+  .compare .bg-img {
+    display: block;
+    max-width: 100%;
+    /* Cap height so portraits don't blow up the modal. */
+    max-height: calc(90vh - 120px);
+    width: auto;
+    height: auto;
     pointer-events: none;
   }
   .compare .top-img {
     position: absolute; inset: 0;
-    width: 100%; height: 100%; object-fit: contain;
+    width: 100%; height: 100%;
+    object-fit: fill;
     clip-path: inset(0 50% 0 0);
     transition: none;
+    pointer-events: none;
   }
   .compare .slider {
     position: absolute; top: 0; bottom: 0; left: 50%;
@@ -353,6 +365,7 @@
     .modal-head { padding: 12px 16px; }
     .modal-head h2 { font-size: 15px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .modal-body { padding: 12px; min-height: 0; }
+    .compare .bg-img { max-height: calc(100dvh - 80px); }
     .compare-labels span { font-size: 9px; padding: 3px 7px; letter-spacing: 0.5px; }
     .compare .slider::before { width: 40px; height: 40px; }
     .compare .slider::after { font-size: 18px; }
@@ -461,7 +474,7 @@
     </div>
     <div class="modal-body">
       <div class="compare" id="compare">
-        <img id="cmpBg" alt="">
+        <img id="cmpBg" class="bg-img" alt="">
         <img class="top-img" id="cmpTop" alt="">
         <div class="slider" id="cmpSlider"></div>
         <div class="compare-labels"><span>ORIGINAL</span><span>COMPRESSED</span></div>
