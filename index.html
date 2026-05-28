@@ -1,0 +1,1002 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Compressor — fast & efficient image compression</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red:        #F95540;
+    --red-dark:   #E04428;
+    --red-bright: #FF5500;
+    --pink-bg:    #FBEEEC;
+    --pink-soft:  #FFE4DE;
+    --green:      #1FAA59;
+    --text:       #2F2A29;
+    --text-muted: #7A6D6A;
+    --bg:         #FFFFFF;
+    --border:     #E8E0DE;
+    --shadow:     0 2px 12px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Mulish', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.4;
+  }
+
+  /* Background triangles */
+  .bg-triangles { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .tri { position: absolute; width: 56vw; height: 56vw; background: var(--red); opacity: 0.92; }
+  .tri.tl { top: 0; left: -10vw; clip-path: polygon(0 0, 100% 0, 0 100%); }
+  .tri.br { bottom: -10vw; right: -10vw; clip-path: polygon(100% 0, 100% 100%, 0 100%); }
+  .tri::before {
+    content: ''; position: absolute; inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'><g fill='none' stroke='rgba(255,255,255,0.18)' stroke-width='2'><path d='M25 30 h25 a5 5 0 0 1 5 5 v10 a5 5 0 0 1 -5 5 h-25 a5 5 0 0 1 -5 -5 v-10 a5 5 0 0 1 5 -5 z'/><line x1='32' y1='30' x2='32' y2='50'/><circle cx='40' cy='40' r='3'/></g></svg>");
+    opacity: 0.7;
+  }
+
+  /* Hero */
+  .hero { position: relative; z-index: 5; text-align: center; padding: 40px 20px 30px; max-width: 1100px; margin: 0 auto; }
+  .hero h1 { font-size: 64px; font-weight: 700; margin: 0 0 20px; line-height: 1.1; letter-spacing: -1px; }
+  .hero h1 .strong { font-weight: 900; }
+  .pill { display: inline-block; padding: 14px 28px; border: 2px solid var(--red); border-radius: 8px; color: var(--red); font-weight: 800; font-size: 16px; background: white; margin-top: 8px; }
+
+  /* Compression type tabs */
+  .ctype-row { position: relative; z-index: 5; max-width: 1100px; margin: 0 auto; display: flex; justify-content: flex-end; padding: 20px 40px 0; align-items: center; gap: 14px; }
+  .ctype-label { color: var(--text); font-weight: 800; font-size: 13px; letter-spacing: 1px; }
+  .ctype-help { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: white; color: var(--text-muted); font-size: 11px; font-weight: 800; border: 1.5px solid var(--text-muted); cursor: help; }
+  .ctype-tabs { display: flex; border-radius: 6px; overflow: hidden; background: white; box-shadow: var(--shadow); border: 1px solid var(--border); }
+  .ctype-tabs button { background: white; border: 0; padding: 10px 22px; font-family: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; color: var(--text); cursor: pointer; transition: background .15s, color .15s; }
+  .ctype-tabs button + button { border-left: 1px solid var(--border); }
+  .ctype-tabs button:hover { background: var(--pink-bg); }
+  .ctype-tabs button.active { background: var(--red); color: white; }
+
+  /* Drop zone */
+  .drop-wrap { position: relative; z-index: 5; max-width: 1100px; margin: 16px auto 0; padding: 0 40px; }
+  .drop {
+    display: block;
+    background: white;
+    border: 2.5px dashed var(--red);
+    border-radius: 12px;
+    padding: 60px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .drop:hover, .drop.over { background: var(--pink-bg); border-color: var(--red-dark); }
+  .drop .icon-stack { width: 80px; height: 80px; display: block; margin: 0 auto 14px; }
+  .drop input[type=file] { display: none; }
+  .drop .drop-msg { color: var(--red); font-weight: 800; font-size: 18px; margin-bottom: 8px; }
+  .drop .drop-sub { color: var(--text-muted); font-size: 14px; margin-bottom: 18px; }
+  .btn-select { display: inline-flex; align-items: center; gap: 8px; background: white; border: 1px solid var(--border); border-radius: 6px; padding: 10px 20px; font-family: inherit; font-size: 14px; font-weight: 700; color: var(--text); cursor: pointer; box-shadow: var(--shadow); }
+  .btn-select:hover { border-color: var(--red); color: var(--red); }
+  .btn-select svg { width: 16px; height: 16px; }
+
+  /* Custom-mode controls panel */
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; max-width: 1100px; margin: 16px auto 0; padding: 0 40px; }
+  .controls[hidden] { display: none; }
+  .ctl { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; box-shadow: var(--shadow); }
+  .ctl label { display:block; font-size:12px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+  .ctl label .val { float:right; color: var(--text); font-weight: 800; font-variant-numeric: tabular-nums; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--red); }
+  .ctl[hidden] { display: none; }
+
+  /* ===== File list (multi-file results table) ===== */
+  .filelist-wrap { position: relative; z-index: 5; max-width: 1100px; margin: 24px auto 0; padding: 0 40px; }
+  .filelist-wrap[hidden] { display: none; }
+  .filelist-card { background: white; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+  .filelist-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    background: var(--pink-bg);
+    flex-wrap: wrap; gap: 10px;
+  }
+  .filelist-header .summary { color: var(--text); font-weight: 800; font-size: 15px; }
+  .filelist-header .summary .saved-total { color: var(--green); }
+  .filelist-actions { display: flex; gap: 10px; }
+  .filelist-actions button {
+    background: var(--red); color: white; border: 0;
+    padding: 9px 18px; border-radius: 6px;
+    font-family: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.3px;
+    cursor: pointer; transition: background .15s;
+  }
+  .filelist-actions button:hover { background: var(--red-dark); }
+  .filelist-actions button.ghost {
+    background: white; color: var(--text); border: 1px solid var(--border);
+  }
+  .filelist-actions button.ghost:hover { border-color: var(--red); color: var(--red); }
+  .filelist-actions button[disabled] {
+    background: #DAD5D3; color: white; cursor: not-allowed;
+  }
+
+  table.filelist {
+    width: 100%; border-collapse: collapse; font-size: 14px;
+  }
+  table.filelist th {
+    text-align: left; padding: 12px 16px;
+    font-size: 11px; font-weight: 800; letter-spacing: 1px; color: var(--text-muted);
+    text-transform: uppercase;
+    background: white; border-bottom: 1px solid var(--border);
+  }
+  table.filelist td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  table.filelist tr:last-child td { border-bottom: none; }
+  table.filelist tr.row-error td { background: #FFF4F2; }
+  td.col-name { font-weight: 700; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.col-name .badge { display: inline-block; background: var(--pink-soft); color: var(--red); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; margin-left: 8px; vertical-align: 2px; }
+  td.col-before, td.col-after { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.col-after .size { color: var(--text); font-weight: 800; }
+  td.col-after .saved, td.col-after .grown {
+    display: inline-block; color: white;
+    padding: 2px 7px; border-radius: 4px;
+    font-weight: 800; font-size: 11px; margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  td.col-after .saved { background: var(--green); }
+  td.col-after .grown { background: #C28C00; }
+  td.col-status { min-width: 180px; }
+  td.col-action { white-space: nowrap; text-align: right; }
+  /* progress bar inside status cell */
+  .row-progress {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .row-progress .bar {
+    flex: 1; height: 4px; background: var(--pink-bg); border-radius: 2px; overflow: hidden;
+  }
+  .row-progress .bar > div {
+    height: 100%; background: var(--red);
+    width: 0%; transition: width .2s ease;
+  }
+  .row-progress .label {
+    font-size: 12px; color: var(--text-muted);
+    font-variant-numeric: tabular-nums; min-width: 60px; text-align: right;
+  }
+  .row-status-done { color: var(--green); font-weight: 800; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .row-status-error { color: var(--red); font-weight: 800; font-size: 12px; }
+  .row-status-grown { color: #C28C00; font-weight: 800; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .row-status-queued { color: var(--text-muted); font-weight: 700; font-size: 12px; letter-spacing: 0.5px; }
+
+  /* Row action buttons */
+  .btn-row {
+    background: white; color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px;
+    padding: 6px 12px; font-family: inherit; font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: all .15s;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn-row:hover { border-color: var(--red); color: var(--red); }
+  .btn-row.primary { background: var(--red); color: white; border-color: var(--red); }
+  .btn-row.primary:hover { background: var(--red-dark); border-color: var(--red-dark); color: white; }
+  .btn-row[disabled] { background: #F4F0EE; color: #B5ADAB; border-color: #ECE6E4; cursor: not-allowed; }
+  .btn-row svg { width: 14px; height: 14px; }
+  .row-actions { display: inline-flex; gap: 6px; }
+
+  /* Compare modal */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(47,42,41,0.7);
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: white; border-radius: 12px; overflow: hidden;
+    max-width: 1100px; width: 100%; max-height: 90vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,.4);
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+  }
+  .modal-head h2 { margin: 0; font-size: 18px; font-weight: 800; }
+  .modal-head .close {
+    background: none; border: 0; font-size: 24px;
+    cursor: pointer; color: var(--text-muted); padding: 4px 8px;
+  }
+  .modal-head .close:hover { color: var(--red); }
+  .modal-body {
+    flex: 1; overflow: auto; background: var(--pink-bg);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; min-height: 320px;
+  }
+  /* Image compare slider */
+  .compare {
+    position: relative;
+    width: 100%; max-width: 1000px;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    border-radius: 8px;
+    background: #000;
+  }
+  .compare img {
+    display: block; width: 100%; height: auto;
+    pointer-events: none;
+  }
+  .compare .top-img {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%; object-fit: contain;
+    clip-path: inset(0 50% 0 0);
+    transition: none;
+  }
+  .compare .slider {
+    position: absolute; top: 0; bottom: 0; left: 50%;
+    width: 4px; background: white; transform: translateX(-50%);
+    cursor: ew-resize;
+    box-shadow: 0 0 8px rgba(0,0,0,.3);
+  }
+  .compare .slider::before {
+    content: ''; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 32px; height: 32px; background: white;
+    border-radius: 50%; box-shadow: 0 0 8px rgba(0,0,0,.3);
+  }
+  .compare .slider::after {
+    content: '⇄'; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: var(--text); font-weight: 700;
+    z-index: 1;
+  }
+  .compare-labels {
+    position: absolute; top: 12px; left: 12px; right: 12px;
+    display: flex; justify-content: space-between;
+    pointer-events: none;
+  }
+  .compare-labels span {
+    background: rgba(47,42,41,0.8); color: white;
+    padding: 4px 10px; border-radius: 4px;
+    font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  }
+
+  /* Footer */
+  footer { position: relative; z-index: 5; text-align: center; padding: 40px 20px 24px; color: var(--text-muted); font-size: 13px; }
+
+  /* ===== Responsive ===== */
+
+  /* Tablet */
+  @media (max-width: 900px) {
+    .hero { padding: 32px 16px 24px; }
+    .hero h1 { font-size: 48px; }
+    .pill { font-size: 14px; padding: 12px 22px; }
+    .ctype-row, .drop-wrap, .filelist-wrap, .controls { padding-left: 16px; padding-right: 16px; }
+    .ctype-row { justify-content: center; flex-wrap: wrap; }
+    .drop { padding: 48px 24px; }
+    .controls { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    table.filelist th:nth-child(2), table.filelist td:nth-child(2) { display: none; }
+    td.col-name { max-width: 200px; }
+  }
+
+  /* Phone — convert table to stacked cards */
+  @media (max-width: 640px) {
+    .hero { padding: 24px 14px 16px; }
+    .hero h1 { font-size: 32px; letter-spacing: -0.5px; margin-bottom: 14px; }
+    .pill { font-size: 12px; padding: 10px 16px; letter-spacing: 0.3px; }
+
+    .ctype-row { padding: 14px 14px 0; gap: 8px; font-size: 11px; }
+    .ctype-label { font-size: 11px; letter-spacing: 0.5px; }
+    .ctype-tabs { width: 100%; }
+    .ctype-tabs button { flex: 1; padding: 10px 8px; font-size: 11px; letter-spacing: 0.3px; }
+
+    .drop-wrap, .filelist-wrap, .controls { padding-left: 14px; padding-right: 14px; }
+    .drop { padding: 32px 16px; border-width: 2px; }
+    .drop .icon-stack { width: 60px; height: 60px; margin-bottom: 10px; }
+    .drop .drop-msg { font-size: 15px; }
+    .drop .drop-sub { font-size: 12px; margin-bottom: 14px; }
+    .btn-select { padding: 9px 16px; font-size: 13px; }
+
+    .controls { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .ctl { padding: 10px 12px; }
+    .ctl label { font-size: 11px; }
+
+    /* Header inside results card */
+    .filelist-header { padding: 12px 14px; }
+    .filelist-header .summary { font-size: 13px; width: 100%; }
+    .filelist-actions { width: 100%; }
+    .filelist-actions button {
+      flex: 1; padding: 9px 10px; font-size: 12px; letter-spacing: 0;
+    }
+
+    /* Convert table → cards */
+    table.filelist, table.filelist tbody, table.filelist tr, table.filelist td {
+      display: block; width: 100%;
+    }
+    table.filelist thead { display: none; }
+    table.filelist tr {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    table.filelist tr:last-child { border-bottom: none; }
+    table.filelist td {
+      padding: 4px 0; border: none;
+    }
+    td.col-name {
+      max-width: 100%; font-size: 14px;
+      display: flex !important; align-items: center; gap: 8px;
+      margin-bottom: 6px;
+    }
+    td.col-name .badge { margin-left: 0; flex-shrink: 0; }
+    /* Show "Before" again on mobile but inline with After */
+    table.filelist td.col-before { display: block !important; }
+    td.col-before, td.col-after {
+      display: inline-block !important; font-size: 13px;
+      white-space: normal;
+    }
+    td.col-before::before { content: 'Before: '; color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td.col-after::before { content: 'After: '; color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td.col-after { margin-left: 14px; }
+    td.col-after .saved, td.col-after .grown { font-size: 10px; padding: 1px 5px; }
+
+    td.col-status { min-width: 0; margin-top: 4px; }
+    td.col-action { text-align: left; margin-top: 10px; }
+    .row-actions { display: flex; width: 100%; gap: 8px; }
+    .btn-row { flex: 1; justify-content: center; padding: 9px 8px; font-size: 13px; }
+
+    /* Compare modal */
+    .modal-overlay { padding: 0; align-items: stretch; }
+    .modal {
+      max-height: 100vh; max-height: 100dvh;
+      border-radius: 0;
+    }
+    .modal-head { padding: 12px 16px; }
+    .modal-head h2 { font-size: 15px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .modal-body { padding: 12px; min-height: 0; }
+    .compare-labels span { font-size: 9px; padding: 3px 7px; letter-spacing: 0.5px; }
+    .compare .slider::before { width: 40px; height: 40px; }
+    .compare .slider::after { font-size: 18px; }
+
+    /* Smaller background triangles so they don't dominate */
+    .tri { width: 75vw; height: 75vw; opacity: 0.85; }
+
+    footer { padding: 24px 14px 20px; font-size: 11px; line-height: 1.6; }
+  }
+
+  /* Very small phones */
+  @media (max-width: 360px) {
+    .hero h1 { font-size: 26px; }
+    .ctype-tabs button { font-size: 10px; padding: 9px 4px; }
+    .controls { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-triangles" aria-hidden="true">
+  <div class="tri tl"></div>
+  <div class="tri br"></div>
+</div>
+
+<section class="hero">
+  <h1>Fast &amp; efficient image<br><span class="strong">compression</span></h1>
+  <div class="pill">Optimize JPEG, PNG, SVG, GIF and WEBP</div>
+</section>
+
+<div class="ctype-row">
+  <span class="ctype-label">COMPRESSION TYPE</span>
+  <span class="ctype-help" title="LOSSY = compressor.io defaults · LOSSLESS = max quality · CUSTOM = your own settings">?</span>
+  <span class="ctype-label">:</span>
+  <div class="ctype-tabs" id="ctypeTabs">
+    <button data-mode="lossy" class="active">LOSSY</button>
+    <button data-mode="lossless">LOSSLESS</button>
+    <button data-mode="custom">CUSTOM</button>
+  </div>
+</div>
+
+<!-- CUSTOM mode controls -->
+<div class="controls" id="controls" hidden>
+  <div class="ctl"><label>PNG colors <span class="val" id="vColors">256</span></label><input type="range" id="colors" min="8" max="256" value="256"></div>
+  <div class="ctl"><label>PNG dither <span class="val" id="vDither">1.00</span></label><input type="range" id="dither" min="0" max="1" value="1" step="0.05"></div>
+  <div class="ctl"><label>PNG speed <span class="val" id="vSpeed">3</span></label><input type="range" id="speed" min="1" max="10" value="3"></div>
+  <div class="ctl"><label>JPG/WebP quality <span class="val" id="vQuality">70</span></label><input type="range" id="quality" min="40" max="95" value="70"></div>
+  <div class="ctl"><label>GIF lossy <span class="val" id="vLossy">80</span></label><input type="range" id="lossy" min="0" max="200" value="80" step="5"></div>
+</div>
+
+<section class="drop-wrap" id="dropWrap">
+  <label class="drop" id="drop">
+    <input type="file" id="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.svg">
+    <svg class="icon-stack" viewBox="0 0 100 100" aria-hidden="true">
+      <rect x="15" y="55" width="70" height="35" rx="4" fill="#FFC52B" stroke="#E0A500" stroke-width="2"/>
+      <rect x="20" y="40" width="65" height="35" rx="4" fill="#3FB6E5" stroke="#1F8DBC" stroke-width="2"/>
+      <rect x="25" y="25" width="60" height="45" rx="4" fill="#4FCC78" stroke="#2EA859" stroke-width="2"/>
+      <polygon points="25,55 45,40 60,52 75,38 85,52 85,70 25,70" fill="#9FE0C0" opacity="0.8"/>
+      <circle cx="70" cy="35" r="4" fill="#FFD24D"/>
+    </svg>
+    <div class="drop-msg">drop your images or click to Browse</div>
+    <div class="drop-sub">compress jpg, png, gif, svg, webp. Multiple files OK. Max 50 MB each.</div>
+    <button class="btn-select" type="button" onclick="document.getElementById('file').click()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="2" width="12" height="12" rx="2"/>
+        <line x1="8" y1="5" x2="8" y2="11"/>
+        <line x1="5" y1="8" x2="11" y2="8"/>
+      </svg>
+      Select files
+    </button>
+  </label>
+</section>
+
+<!-- File list (results table) -->
+<section class="filelist-wrap" id="filelistWrap" hidden>
+  <div class="filelist-card">
+    <div class="filelist-header">
+      <div class="summary" id="fileSummary">0 files</div>
+      <div class="filelist-actions">
+        <button id="addMore" class="ghost">+ Add files</button>
+        <button id="downloadAll" disabled>Download all</button>
+        <button id="clearAll" class="ghost">Clear</button>
+      </div>
+    </div>
+    <table class="filelist">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Before</th>
+          <th>Status</th>
+          <th>After</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="fileRows"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Compare modal -->
+<div class="modal-overlay" id="compareModal" aria-hidden="true">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="compareTitle">Compare</h2>
+      <button class="close" id="compareClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="compare" id="compare">
+        <img id="cmpBg" alt="">
+        <img class="top-img" id="cmpTop" alt="">
+        <div class="slider" id="cmpSlider"></div>
+        <div class="compare-labels"><span>ORIGINAL</span><span>COMPRESSED</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  100% in-browser compression — your files never leave your device.<br>
+  Powered by pngquant • mozjpeg • libwebp • gifsicle • SVGO via WebAssembly.
+</footer>
+
+<script src="./wasm_exec.js"></script>
+<script type="module">
+// ============================================================
+//  Codec loading
+// ============================================================
+const $ = id => document.getElementById(id);
+
+function formatBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/1024/1024).toFixed(2) + ' MB';
+}
+
+// Module readiness
+let goReady = false, mozjpegReady = false, webpReady = false, gifsicleReady = false, svgoReady = false;
+let mjEnc = null, mjDec = null, wpEnc = null, wpDec = null;
+let svgoOptimize = null, gifsicleMod = null;
+
+function setGlobalStatus(msg) {
+  // Helper for showing loading status under drop zone (only before first file)
+  const els = document.querySelectorAll('.drop .drop-sub');
+  if (els[0]) els[0].textContent = msg;
+}
+
+window.compressorOnReady = () => { goReady = true; checkReady(); };
+function checkReady() {
+  if (goReady && mozjpegReady && webpReady && gifsicleReady && svgoReady) {
+    setGlobalStatus('compress jpg, png, gif, svg, webp. Multiple files OK. Max 50 MB each.');
+  }
+}
+setGlobalStatus('Loading WASM codecs…');
+
+const go = new Go();
+WebAssembly.instantiateStreaming(fetch('compressor.wasm'), go.importObject)
+  .then(({instance}) => go.run(instance))
+  .catch(err => setGlobalStatus('Failed to load Go-WASM: ' + err.message));
+
+import mozjpegEnc from './codecs/jpeg/mozjpeg_enc.js';
+import mozjpegDec from './codecs/jpeg/mozjpeg_dec.js';
+Promise.all([
+  mozjpegEnc({ locateFile: f => 'codecs/jpeg/' + f }),
+  mozjpegDec({ locateFile: f => 'codecs/jpeg/' + f }),
+]).then(([e, d]) => { mjEnc = e; mjDec = d; mozjpegReady = true; checkReady(); })
+  .catch(err => setGlobalStatus('mozjpeg load failed: ' + err.message));
+
+import webpEnc from './codecs/webp/webp_enc.js';
+import webpDec from './codecs/webp/webp_dec.js';
+Promise.all([
+  webpEnc({ locateFile: f => 'codecs/webp/' + f }),
+  webpDec({ locateFile: f => 'codecs/webp/' + f }),
+]).then(([e, d]) => { wpEnc = e; wpDec = d; webpReady = true; checkReady(); })
+  .catch(err => setGlobalStatus('libwebp load failed: ' + err.message));
+
+import { optimize as svgOptimize } from './codecs/svg/svgo.browser.js';
+svgoOptimize = svgOptimize;
+svgoReady = true;
+checkReady();
+
+import gifsicleBrowser from './codecs/gif/gifsicle.min.js?v=3';
+gifsicleMod = gifsicleBrowser;
+gifsicleReady = true;
+checkReady();
+
+// ============================================================
+//  Mode (LOSSY / LOSSLESS / CUSTOM)
+// ============================================================
+let mode = 'lossy';
+function bindRange(rangeId, valId, fmt) {
+  const r = $(rangeId), v = $(valId);
+  const sync = () => v.textContent = fmt(r.value);
+  r.addEventListener('input', sync);
+  sync();
+}
+bindRange('colors', 'vColors', x => x);
+bindRange('dither', 'vDither', x => Number(x).toFixed(2));
+bindRange('quality', 'vQuality', x => x);
+bindRange('lossy',   'vLossy',   x => x);
+bindRange('speed',   'vSpeed',   x => x);
+
+function applyMode(m) {
+  mode = m;
+  [...$('ctypeTabs').querySelectorAll('button')].forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  $('controls').hidden = (m !== 'custom');
+  const lossless = (m === 'lossless');
+  $('quality').value = lossless ? 95 : 70;
+  $('lossy').value   = lossless ? 0  : 80;
+  $('colors').value  = 256;
+  $('dither').value  = 1;
+  $('speed').value   = 3;
+  ['quality','lossy','colors','dither','speed'].forEach(id => $(id).dispatchEvent(new Event('input', { bubbles: true })));
+}
+$('ctypeTabs').addEventListener('click', e => {
+  if (e.target.tagName === 'BUTTON' && e.target.dataset.mode) applyMode(e.target.dataset.mode);
+});
+applyMode('lossy');
+
+// ============================================================
+//  Format detection + per-format compress (same as before)
+// ============================================================
+function detectType(bytes) {
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'png';
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'jpg';
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'gif';
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+      && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'webp';
+  const head = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(0, 512)).toLowerCase();
+  if (head.includes('<svg')) return 'svg';
+  return 'png';
+}
+
+function readOpts() {
+  return {
+    maxColors: parseInt($('colors').value, 10),
+    dither:    parseFloat($('dither').value),
+    speed:     parseInt($('speed').value, 10),
+    quality:   parseInt($('quality').value, 10),
+    lossy:     parseInt($('lossy').value, 10),
+    lossless:  (mode === 'lossless'),
+  };
+}
+
+async function compressPng(bytes, opts, onProgress) {
+  if (opts.lossless) {
+    // Lossless: re-encode via canvas → PNG. Canvas's PNG output is
+    // always lossless. If the original was already an optimized PNG
+    // this might actually grow the file — that's the price for "no
+    // quality loss". Most photos shrink anyway because canvas uses
+    // strong zlib + filters.
+    onProgress(0.1);
+    const blob = new Blob([bytes], { type: 'image/png' });
+    const url = URL.createObjectURL(blob);
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = url;
+    });
+    onProgress(0.4);
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    onProgress(0.7);
+    const pngBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    onProgress(0.95);
+    const out = new Uint8Array(await pngBlob.arrayBuffer());
+    onProgress(1.0);
+    return { data: out, stats: { width: img.naturalWidth, height: img.naturalHeight } };
+  }
+  const phaseBase = { quantize: 0, dither: 0.5, encode: 0.85 };
+  const phaseWeight = { quantize: 0.5, dither: 0.35, encode: 0.15 };
+  const cb = (stage, frac) => onProgress((phaseBase[stage] ?? 0) + (phaseWeight[stage] ?? 0) * frac);
+  await new Promise(r => setTimeout(r, 10));
+  const result = window.compressPNG(bytes, opts, cb);
+  if (result.error) throw new Error(result.error);
+  return { data: result.data, stats: result.stats };
+}
+async function compressJpg(bytes, opts, onProgress) {
+  onProgress(0.3); await new Promise(r => setTimeout(r, 10));
+  const decoded = mjDec.decode(bytes, {});
+  onProgress(0.6); await new Promise(r => setTimeout(r, 10));
+  const q = opts.quality;
+  const encoded = mjEnc.encode(decoded.data, decoded.width, decoded.height, {
+    // True JPEG lossless does not exist in mozjpeg — we approximate with
+    // q=100 + no chroma subsampling (4:4:4) + arithmetic coding.
+    quality: opts.lossless ? 100 : q,
+    baseline: false,
+    arithmetic: false,
+    progressive: true,
+    optimize_coding: true, smoothing: 0, color_space: 3, quant_table: 3,
+    trellis_multipass: false, trellis_opt_zero: false, trellis_opt_table: false, trellis_loops: 1,
+    auto_subsample: opts.lossless ? false : true,
+    chroma_subsample: opts.lossless ? 1 : 2,
+    separate_chroma_quality: false,
+    chroma_quality: opts.lossless ? 100 : q,
+  });
+  onProgress(1.0);
+  return { data: new Uint8Array(encoded), stats: { width: decoded.width, height: decoded.height } };
+}
+async function compressWebp(bytes, opts, onProgress) {
+  onProgress(0.2); await new Promise(r => setTimeout(r, 10));
+  const decoded = wpDec.decode(bytes);
+  onProgress(0.5); await new Promise(r => setTimeout(r, 10));
+  const q = opts.quality;
+  const encoded = wpEnc.encode(decoded.data, decoded.width, decoded.height, {
+    quality: opts.lossless ? 100 : q,
+    target_size: 0, target_PSNR: 0,
+    method: opts.lossless ? 6 : 4,
+    sns_strength: 50,
+    filter_strength: 60, filter_sharpness: 0, filter_type: 1, partitions: 0,
+    segments: 4, pass: 1, show_compressed: 0, preprocessing: 0, autofilter: 0,
+    partition_limit: 0, alpha_compression: 1, alpha_filtering: 1, alpha_quality: 100,
+    lossless: opts.lossless ? 1 : 0,
+    exact: opts.lossless ? 1 : 0,
+    image_hint: 0, emulate_jpeg_size: 0,
+    thread_level: 0, low_memory: 0, near_lossless: 100, use_delta_palette: 0, use_sharp_yuv: 0,
+  });
+  onProgress(1.0);
+  return { data: new Uint8Array(encoded), stats: { width: decoded.width, height: decoded.height } };
+}
+async function compressGif(bytes, opts, onProgress) {
+  onProgress(0.1); await new Promise(r => setTimeout(r, 10));
+  const lossy = opts.lossy;
+  const cmd = '-O3' + (lossy > 0 ? (' --lossy=' + lossy) : '') + ' input.gif -o /out/output.gif';
+  const inputBlob = new Blob([bytes], { type: 'image/gif' });
+  onProgress(0.3);
+  const files = await gifsicleMod.run({
+    input:   [{ file: inputBlob, name: 'input.gif' }],
+    command: [cmd],
+  });
+  if (!files || !files.length) throw new Error('gifsicle returned no output');
+  onProgress(0.9);
+  const out = await files[0].arrayBuffer();
+  onProgress(1.0);
+  return { data: new Uint8Array(out), stats: {} };
+}
+async function compressSvg(bytes, opts, onProgress) {
+  onProgress(0.2); await new Promise(r => setTimeout(r, 10));
+  const text = new TextDecoder('utf-8').decode(bytes);
+  const result = svgoOptimize(text, { multipass: true });
+  const out = new TextEncoder().encode(result.data);
+  onProgress(1.0);
+  return { data: out, stats: {} };
+}
+
+// ============================================================
+//  File queue with parallel workers
+// ============================================================
+const items = [];      // [{ id, file, type, bytes, status, progress, outBytes, outType, error }]
+let nextId = 0;
+const MAX_PARALLEL = 2;
+let activeWorkers = 0;
+let allCodecsReadyForRun = () => goReady && mozjpegReady && webpReady && gifsicleReady && svgoReady;
+
+const fileRows = $('fileRows');
+
+function addFiles(fileList) {
+  for (const f of fileList) {
+    if (!f) continue;
+    items.push({
+      id: ++nextId,
+      file: f,
+      type: null,
+      bytes: null,
+      status: 'queued',  // queued | working | done | error
+      progress: 0,
+      outBytes: null,
+      outType: null,
+      error: null,
+    });
+  }
+  $('filelistWrap').hidden = items.length === 0;
+  $('dropWrap').hidden = false; // keep drop visible
+  renderAll();
+  startWorkers();
+}
+
+function renderAll() {
+  // Replace tbody content fully (cheap because lists are short).
+  fileRows.innerHTML = '';
+  for (const it of items) fileRows.appendChild(renderRow(it));
+  updateSummary();
+}
+
+function renderRow(it) {
+  const tr = document.createElement('tr');
+  tr.dataset.id = it.id;
+  if (it.status === 'error') tr.classList.add('row-error');
+
+  // Name + format badge + (compare button if done)
+  const tdName = document.createElement('td');
+  tdName.className = 'col-name';
+  tdName.title = it.file.name;
+  tdName.textContent = it.file.name;
+  if (it.type) {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = it.type;
+    tdName.appendChild(badge);
+  }
+  tr.appendChild(tdName);
+
+  // Before size
+  const tdBefore = document.createElement('td');
+  tdBefore.className = 'col-before';
+  tdBefore.textContent = formatBytes(it.file.size);
+  tr.appendChild(tdBefore);
+
+  // Status / progress
+  const tdStatus = document.createElement('td');
+  tdStatus.className = 'col-status';
+  if (it.status === 'queued') {
+    tdStatus.innerHTML = '<span class="row-status-queued">Queued</span>';
+  } else if (it.status === 'working') {
+    const pct = (it.progress * 100).toFixed(0);
+    tdStatus.innerHTML = `<div class="row-progress"><div class="bar"><div style="width:${pct}%"></div></div><div class="label">${pct}%</div></div>`;
+  } else if (it.status === 'done') {
+    const ratio = it.outBytes ? (it.outBytes.byteLength / it.file.size) : 1;
+    const savedNum = (1 - ratio) * 100;
+    if (savedNum >= 0) {
+      tdStatus.innerHTML = `<span class="row-status-done">Saved ${savedNum.toFixed(0)}%</span>`;
+    } else {
+      tdStatus.innerHTML = `<span class="row-status-grown">Grown ${(-savedNum).toFixed(0)}%</span>`;
+    }
+  } else if (it.status === 'error') {
+    tdStatus.innerHTML = `<span class="row-status-error">${it.error || 'Error'}</span>`;
+  }
+  tr.appendChild(tdStatus);
+
+  // After size
+  const tdAfter = document.createElement('td');
+  tdAfter.className = 'col-after';
+  if (it.status === 'done') {
+    const ratio = it.outBytes.byteLength / it.file.size;
+    const savedPct = (1 - ratio) * 100;
+    const badge = savedPct >= 0
+      ? `<span class="saved">−${savedPct.toFixed(1)}%</span>`
+      : `<span class="grown">+${(-savedPct).toFixed(1)}%</span>`;
+    tdAfter.innerHTML = `<span class="size">${formatBytes(it.outBytes.byteLength)}</span>${badge}`;
+  } else {
+    tdAfter.textContent = '—';
+  }
+  tr.appendChild(tdAfter);
+
+  // Actions
+  const tdAction = document.createElement('td');
+  tdAction.className = 'col-action';
+  const actions = document.createElement('div');
+  actions.className = 'row-actions';
+
+  const cmpBtn = document.createElement('button');
+  cmpBtn.className = 'btn-row';
+  cmpBtn.textContent = 'Compare';
+  cmpBtn.disabled = (it.status !== 'done');
+  cmpBtn.addEventListener('click', () => openCompare(it));
+  actions.appendChild(cmpBtn);
+
+  const dlBtn = document.createElement('button');
+  dlBtn.className = 'btn-row primary';
+  dlBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 1 v10 M3 7 l5 5 l5 -5 M2 14 h12"/></svg> Download';
+  dlBtn.disabled = (it.status !== 'done');
+  dlBtn.addEventListener('click', () => downloadOne(it));
+  actions.appendChild(dlBtn);
+
+  tdAction.appendChild(actions);
+  tr.appendChild(tdAction);
+
+  return tr;
+}
+
+function updateSummary() {
+  const total = items.length;
+  const done  = items.filter(it => it.status === 'done').length;
+  const error = items.filter(it => it.status === 'error').length;
+  const totalIn  = items.reduce((s, it) => s + it.file.size, 0);
+  const totalOut = items.reduce((s, it) => s + (it.outBytes ? it.outBytes.byteLength : it.file.size), 0);
+  const savedPct = totalIn > 0 ? ((1 - totalOut/totalIn) * 100).toFixed(1) : '0';
+  let txt = `${total} file${total === 1 ? '' : 's'}`;
+  if (done > 0) txt += ` · ${done} done · saved <span class="saved-total">${savedPct}%</span> (${formatBytes(totalIn - totalOut)})`;
+  if (error > 0) txt += ` · ${error} error`;
+  $('fileSummary').innerHTML = txt;
+  $('downloadAll').disabled = done === 0;
+}
+
+async function startWorkers() {
+  while (activeWorkers < MAX_PARALLEL) {
+    const it = items.find(x => x.status === 'queued');
+    if (!it) break;
+    if (!allCodecsReadyForRun()) {
+      // Codecs not ready yet — retry shortly.
+      setTimeout(startWorkers, 300);
+      return;
+    }
+    activeWorkers++;
+    it.status = 'working';
+    renderRow_inplace(it);
+    processOne(it).finally(() => {
+      activeWorkers--;
+      startWorkers();
+    });
+  }
+}
+
+function renderRow_inplace(it) {
+  // Replace just the row for this item.
+  const oldRow = fileRows.querySelector('tr[data-id="' + it.id + '"]');
+  const newRow = renderRow(it);
+  if (oldRow) oldRow.replaceWith(newRow);
+  else fileRows.appendChild(newRow);
+  updateSummary();
+}
+
+async function processOne(it) {
+  try {
+    const buf = new Uint8Array(await it.file.arrayBuffer());
+    it.bytes = buf;
+    it.type = detectType(buf);
+    renderRow_inplace(it);
+
+    const opts = readOpts();
+    const onProgress = p => {
+      it.progress = p;
+      renderRow_inplace(it);
+    };
+
+    let res;
+    if (it.type === 'jpg')      res = await compressJpg(buf, opts, onProgress);
+    else if (it.type === 'webp')res = await compressWebp(buf, opts, onProgress);
+    else if (it.type === 'gif') res = await compressGif(buf, opts, onProgress);
+    else if (it.type === 'svg') res = await compressSvg(buf, opts, onProgress);
+    else                        res = await compressPng(buf, opts, onProgress);
+
+    let outBytes = res.data;
+    // Smart fallback: if compression made the file LARGER (typical for
+    // LOSSLESS mode on already-compressed JPGs/WebPs), keep the original
+    // bytes instead. The user still gets a "done" state, just with 0%
+    // saved. Skip the fallback in CUSTOM mode so power users can see
+    // what their settings actually produce.
+    if (mode !== 'custom' && outBytes.byteLength > buf.byteLength) {
+      outBytes = buf;
+    }
+    it.outBytes = outBytes;
+    it.outType  = it.type;
+    it.status   = 'done';
+    it.progress = 1;
+  } catch (e) {
+    console.error('compress error:', e);
+    it.status = 'error';
+    it.error  = (e && e.message) ? e.message : String(e);
+  }
+  renderRow_inplace(it);
+}
+
+// ============================================================
+//  Download / clear / compare
+// ============================================================
+function mimeFor(type) {
+  return ({ jpg: 'image/jpeg', webp: 'image/webp', png: 'image/png', gif: 'image/gif', svg: 'image/svg+xml' })[type] || 'application/octet-stream';
+}
+function extFor(type) {
+  return ({ jpg: '.min.jpg', webp: '.min.webp', png: '.min.png', gif: '.min.gif', svg: '.min.svg' })[type] || '.bin';
+}
+
+function downloadOne(it) {
+  if (!it.outBytes) return;
+  const blob = new Blob([it.outBytes], { type: mimeFor(it.outType) });
+  const base = it.file.name.replace(/\.[^.]+$/, '');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = base + extFor(it.outType);
+  a.click();
+}
+
+$('downloadAll').addEventListener('click', () => {
+  items.forEach(it => { if (it.status === 'done') downloadOne(it); });
+});
+$('clearAll').addEventListener('click', () => {
+  items.length = 0;
+  renderAll();
+  $('filelistWrap').hidden = true;
+});
+$('addMore').addEventListener('click', () => $('file').click());
+
+// Compare modal
+function openCompare(it) {
+  if (!it.outBytes) return;
+  const cmpBg  = $('cmpBg');
+  const cmpTop = $('cmpTop');
+  // Original on the LEFT (cmpTop with clip-path), compressed on the RIGHT (cmpBg).
+  cmpBg.src  = URL.createObjectURL(new Blob([it.outBytes], { type: mimeFor(it.outType) }));
+  cmpTop.src = URL.createObjectURL(it.file);
+  $('compareTitle').textContent = 'Compare: ' + it.file.name;
+  $('compareModal').classList.add('open');
+  // Reset slider to middle.
+  setCompareAt(0.5);
+}
+function setCompareAt(frac) {
+  const top = $('cmpTop'), sl = $('cmpSlider');
+  top.style.clipPath = `inset(0 ${(1-frac)*100}% 0 0)`;
+  sl.style.left = (frac*100) + '%';
+}
+$('compareClose').addEventListener('click', () => $('compareModal').classList.remove('open'));
+$('compareModal').addEventListener('click', e => {
+  if (e.target === $('compareModal')) $('compareModal').classList.remove('open');
+});
+// Drag the slider.
+let dragging = false;
+$('compare').addEventListener('pointerdown', e => {
+  dragging = true;
+  e.currentTarget.setPointerCapture(e.pointerId);
+  updateCompareFromEvent(e);
+});
+$('compare').addEventListener('pointermove', e => { if (dragging) updateCompareFromEvent(e); });
+$('compare').addEventListener('pointerup', e => { dragging = false; });
+function updateCompareFromEvent(e) {
+  const rect = $('compare').getBoundingClientRect();
+  const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+  setCompareAt(x / rect.width);
+}
+
+// ============================================================
+//  File input + drag-and-drop
+// ============================================================
+$('file').addEventListener('change', e => {
+  if (e.target.files && e.target.files.length) {
+    addFiles(e.target.files);
+    e.target.value = '';
+  }
+});
+
+const drop = $('drop');
+['dragenter','dragover'].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => {
+  if (e.dataTransfer.files && e.dataTransfer.files.length) {
+    addFiles(e.dataTransfer.files);
+  }
+});
+</script>
+
+</body>
+</html>
