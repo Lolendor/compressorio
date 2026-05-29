@@ -103,6 +103,18 @@ outputFormatEl.addEventListener('change', () => {
 });
 
 // ============================================================
+//  Output scale (resize factor before encoding)
+//  1.0 = keep source size. Anything else triggers a canvas-based
+//  bilinear resample inside decodeToRGBA → encodeRGBATo.
+// ============================================================
+let outputScale = 1;
+const outputScaleEl = $('outputScale');
+outputScaleEl.addEventListener('change', () => {
+  outputScale = parseFloat(outputScaleEl.value) || 1;
+  outputScaleEl.classList.toggle('active-convert', outputScale !== 1);
+});
+
+// ============================================================
 //  Format detection + per-format compress (same as before)
 // ============================================================
 function detectType(bytes) {
@@ -124,6 +136,7 @@ function readOpts() {
     quality:   parseInt($('quality').value, 10),
     lossy:     parseInt($('lossy').value, 10),
     lossless:  (mode === 'lossless'),
+    scale:     outputScale,
   };
 }
 
@@ -556,17 +569,20 @@ async function compressSvg(bytes, opts, onProgress) {
 //  Cross-format conversion (decode → re-encode to target)
 // ============================================================
 
-// Decode any supported source into raw RGBA pixels.
+// Decode any supported source into raw RGBA pixels, optionally
+// resized by `scale` (1 = original size). For SVG the scale is
+// applied at rasterisation time (vector → crisp pixels). For raster
+// formats we do a bilinear resample on a 2D canvas.
 // Returns { data: Uint8ClampedArray, width, height }.
-async function decodeToRGBA(bytes, type) {
+async function decodeToRGBA(bytes, type, scale = 1) {
   // mozjpeg / libwebp expose native decoders that give us RGBA directly.
   if (type === 'jpg') {
     const d = mjDec.decode(bytes, {});
-    return { data: new Uint8ClampedArray(d.data), width: d.width, height: d.height };
+    return resampleRGBA(new Uint8ClampedArray(d.data), d.width, d.height, scale);
   }
   if (type === 'webp') {
     const d = wpDec.decode(bytes);
-    return { data: new Uint8ClampedArray(d.data), width: d.width, height: d.height };
+    return resampleRGBA(new Uint8ClampedArray(d.data), d.width, d.height, scale);
   }
   // PNG / GIF (first frame) / SVG → use the browser's image decoder.
   let mime;
@@ -588,15 +604,43 @@ async function decodeToRGBA(bytes, type) {
     // SVG without intrinsic size — fall back to a reasonable default
     // so users get something instead of a 0×0 canvas error.
     if (!w || !h) { w = 1024; h = 1024; }
+    // Apply scale by drawing the source image directly onto a
+    // scaled-down/up canvas. For SVG this re-rasterises the vector at
+    // the target resolution (no upscale blur). For raster sources it
+    // produces a bilinear resample in one step.
+    const dw = Math.max(1, Math.round(w * scale));
+    const dh = Math.max(1, Math.round(h * scale));
     const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
+    canvas.width = dw; canvas.height = dh;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, w, h);
-    const imgData = ctx.getImageData(0, 0, w, h);
-    return { data: imgData.data, width: w, height: h };
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, dw, dh);
+    const imgData = ctx.getImageData(0, 0, dw, dh);
+    return { data: imgData.data, width: dw, height: dh };
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+// Resample an RGBA buffer to a new size using the browser's 2D
+// canvas bilinear/bicubic engine. No-op when scale === 1.
+function resampleRGBA(data, w, h, scale) {
+  if (scale === 1) return { data, width: w, height: h };
+  const dw = Math.max(1, Math.round(w * scale));
+  const dh = Math.max(1, Math.round(h * scale));
+  // Draw the source pixels onto a same-size canvas, then onto the
+  // destination-sized canvas. Two-stage avoids ImageData's lack of
+  // built-in scaling.
+  const src = document.createElement('canvas');
+  src.width = w; src.height = h;
+  src.getContext('2d').putImageData(new ImageData(data, w, h), 0, 0);
+  const dst = document.createElement('canvas');
+  dst.width = dw; dst.height = dh;
+  const dctx = dst.getContext('2d');
+  dctx.imageSmoothingQuality = 'high';
+  dctx.drawImage(src, 0, 0, dw, dh);
+  const out = dctx.getImageData(0, 0, dw, dh);
+  return { data: out.data, width: dw, height: dh };
 }
 
 // Encode RGBA pixels into the target format.
@@ -669,7 +713,12 @@ async function convertTo(target, bytes, sourceType, opts, onProgress) {
   const icc = (sourceType === 'jpg' || sourceType === 'webp')
               ? extractIccProfile(bytes, sourceType)
               : null;
-  const { data, width, height } = await decodeToRGBA(bytes, sourceType);
+  // For SVG the rasterisation size should be set BEFORE drawing so we
+  // get crisp vector strokes at the target resolution instead of a
+  // blurry upscale of the default-sized bitmap. Pass scale into
+  // decodeToRGBA; it bakes the scale into the canvas dimensions for
+  // SVG and into a post-decode resample for everything else.
+  let { data, width, height } = await decodeToRGBA(bytes, sourceType, opts.scale || 1);
   onProgress(0.5); await new Promise(r => setTimeout(r, 10));
   let out = await encodeRGBATo(target, data, width, height, opts);
   onProgress(0.85);
@@ -910,20 +959,33 @@ async function processOne(it) {
     };
 
     // Decide whether to transcode to a different output format.
-    // GIF (potential animation) and SVG (vector) are kept as-is even when
-    // a target is selected — converting them would lose semantics:
-    // GIF→raster drops every frame after the first; SVG→raster forfeits
-    // infinite scalability. The user said "ну кроме svg наверное" — we
-    // extend that to GIF for the same reason.
+    // GIF is kept as-is even when a target is selected — converting it
+    // would drop every frame after the first. SVG → raster is allowed
+    // because the user explicitly opted in by changing the format
+    // dropdown; we rasterize at the SVG's intrinsic size (or 1024×1024
+    // fallback if it has none) in decodeToRGBA.
     const targetFmt = (outputFormat !== 'original'
-                       && it.type !== 'svg'
                        && it.type !== 'gif')
                       ? outputFormat : null;
+
+    // A non-1× scale requires going through the decode→resize→encode
+    // path even when input and output formats match — the per-format
+    // compressXxx functions don't resize. SVG→SVG and GIF→GIF cannot
+    // be rescaled meaningfully (vector / animation) so we ignore scale
+    // there.
+    const sameFmt = it.outType === it.type;
+    const needsRescale = opts.scale !== 1
+                         && it.type !== 'gif'
+                         && !(it.type === 'svg' && (!targetFmt || targetFmt === 'svg'));
 
     let res;
     if (targetFmt && targetFmt !== it.type) {
       res = await convertTo(targetFmt, buf, it.type, opts, onProgress);
       it.outType = targetFmt;
+    } else if (needsRescale) {
+      // Re-encode into the *same* format but at a different pixel size.
+      res = await convertTo(it.type, buf, it.type, opts, onProgress);
+      it.outType = it.type;
     } else {
       if (it.type === 'jpg')      res = await compressJpg(buf, opts, onProgress);
       else if (it.type === 'webp')res = await compressWebp(buf, opts, onProgress);
@@ -938,10 +1000,11 @@ async function processOne(it) {
     // LOSSLESS mode on already-compressed JPGs/WebPs), keep the original
     // bytes instead. The user still gets a "done" state, just with 0%
     // saved. Skip the fallback in CUSTOM mode so power users can see
-    // what their settings actually produce. Also skip when we transcoded
-    // to a different format — there the user explicitly asked for the
-    // new format, even if it happens to be larger.
-    if (mode !== 'custom' && !targetFmt && outBytes.byteLength > buf.byteLength) {
+    // what their settings actually produce. Also skip when the user
+    // explicitly asked for a transcode or a non-1× resize — those
+    // requests are about producing a *different* file, not a smaller
+    // one, and silently swapping in the original would defeat the point.
+    if (mode !== 'custom' && !targetFmt && !needsRescale && outBytes.byteLength > buf.byteLength) {
       outBytes = buf;
     }
     it.outBytes = outBytes;
@@ -995,13 +1058,72 @@ function openCompare(it) {
   if (!it.outBytes) return;
   const cmpBg  = $('cmpBg');
   const cmpTop = $('cmpTop');
+  const cmpBox = $('compare');
+
+  // Reset any size hints from a previous compare so raster images can
+  // pick up their natural dimensions again.
+  cmpBg.removeAttribute('width');  cmpBg.removeAttribute('height');
+  cmpTop.removeAttribute('width'); cmpTop.removeAttribute('height');
+  cmpBg.style.width = ''; cmpBg.style.height = '';
+  cmpBox.style.width = ''; cmpBox.style.height = '';
+  cmpBox.classList.remove('compare-svg');
+
   // Original on the LEFT (cmpTop with clip-path), compressed on the RIGHT (cmpBg).
   cmpBg.src  = URL.createObjectURL(new Blob([it.outBytes], { type: mimeFor(it.outType) }));
   cmpTop.src = URL.createObjectURL(it.file);
+
+  // SVGs have no reliable intrinsic size for an <img> tag (a viewBox
+  // alone collapses to 300×150 in most browsers, sometimes 0). Force a
+  // concrete pixel size on the *container* so both layers fill it.
+  // 800px on the long edge keeps the modal usable on phones.
+  const eitherSideIsSvg = (it.outType === 'svg' || it.type === 'svg');
+  if (eitherSideIsSvg) {
+    cmpBox.classList.add('compare-svg');
+    // Try to read the original SVG's aspect ratio so the box doesn't
+    // letterbox a portrait/landscape vector into a square.
+    (async () => {
+      try {
+        const text = await it.file.text();
+        const { w, h } = svgDisplayBox(text);
+        cmpBox.style.width  = w + 'px';
+        cmpBox.style.height = h + 'px';
+        cmpBg.style.width   = w + 'px';
+        cmpBg.style.height  = h + 'px';
+      } catch (_) {
+        cmpBox.style.width = '800px';
+        cmpBox.style.height = '800px';
+      }
+    })();
+  }
+
   $('compareTitle').textContent = 'Compare: ' + it.file.name;
   $('compareModal').classList.add('open');
   // Reset slider to middle.
   setCompareAt(0.5);
+}
+
+// Compute the display box (in CSS pixels) for an SVG so the compare
+// modal shows it at a useful size regardless of the SVG's own width
+// attribute (which is often missing). 800px long edge, with aspect
+// ratio preserved from viewBox / width-height when available.
+function svgDisplayBox(text) {
+  const TARGET = 800;
+  const wAttr = text.match(/\bwidth\s*=\s*["']?([\d.]+)/);
+  const hAttr = text.match(/\bheight\s*=\s*["']?([\d.]+)/);
+  let ratio = 1;
+  if (wAttr && hAttr && +wAttr[1] > 0 && +hAttr[1] > 0) {
+    ratio = +wAttr[1] / +hAttr[1];
+  } else {
+    const vb = text.match(/\bviewBox\s*=\s*["']([\d.\s,-]+)["']/);
+    if (vb) {
+      const parts = vb[1].split(/[\s,]+/).map(Number);
+      if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+        ratio = parts[2] / parts[3];
+      }
+    }
+  }
+  if (ratio >= 1) return { w: TARGET,            h: Math.round(TARGET / ratio) };
+  return                  { w: Math.round(TARGET * ratio), h: TARGET };
 }
 function setCompareAt(frac) {
   const top = $('cmpTop'), sl = $('cmpSlider');

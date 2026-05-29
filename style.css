@@ -228,7 +228,16 @@
     -webkit-user-select: none;
     touch-action: none;
     border-radius: 8px;
-    background: #000;
+    /* Checkerboard so transparent PNGs / SVGs don't look like solid
+       black blobs. 16px tiles, light-on-light to stay out of the way. */
+    background-color: #fff;
+    background-image:
+      linear-gradient(45deg, #e5e5e5 25%, transparent 25%),
+      linear-gradient(-45deg, #e5e5e5 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #e5e5e5 75%),
+      linear-gradient(-45deg, transparent 75%, #e5e5e5 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
     /* Flex so the bg image dictates the container size. */
     display: inline-flex;
   }
@@ -240,6 +249,19 @@
     width: auto;
     height: auto;
     pointer-events: none;
+  }
+  /* SVG compare: container has an explicit pixel size set via JS, so
+     both image layers fill it instead of trying to use their own
+     (often missing) intrinsic size. */
+  .compare.compare-svg {
+    display: block;
+    max-width: 100%;
+    max-height: calc(90vh - 120px);
+  }
+  .compare.compare-svg .bg-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
   .compare .top-img {
     position: absolute; inset: 0;
