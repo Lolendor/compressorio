@@ -302,18 +302,23 @@
 
   /* Footer */
   footer { position: relative; z-index: 5; text-align: center; padding: 40px 20px 24px; color: var(--text-muted); font-size: 13px; line-height: 2; }
+  .footer-credit {
+    display: inline-flex; align-items: center; gap: 8px;
+    vertical-align: middle;
+  }
   .gh-link {
     display: inline-flex; align-items: center; gap: 5px;
     color: var(--text-muted); text-decoration: none; font-weight: 700;
     transition: color .15s;
   }
   .gh-link:hover { color: var(--text); }
-  .gh-link svg { vertical-align: middle; }
+  .gh-link svg { display: block; }
   .footer-license {
-    display: inline-block; margin-left: 8px;
+    display: inline-flex; align-items: center;
     padding: 2px 8px; border-radius: 4px;
     background: var(--border); color: var(--text-muted);
     font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+    line-height: 1;
   }
 
   /* ===== Responsive ===== */
