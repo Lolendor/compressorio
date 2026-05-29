@@ -1,0 +1,391 @@
+  :root {
+    --red:        #F95540;
+    --red-dark:   #E04428;
+    --red-bright: #FF5500;
+    --pink-bg:    #FBEEEC;
+    --pink-soft:  #FFE4DE;
+    --green:      #1FAA59;
+    --text:       #2F2A29;
+    --text-muted: #7A6D6A;
+    --bg:         #FFFFFF;
+    --border:     #E8E0DE;
+    --shadow:     0 2px 12px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Mulish', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.4;
+  }
+
+  /* Background triangles */
+  .bg-triangles { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .tri { position: absolute; width: 56vw; height: 56vw; background: var(--red); opacity: 0.92; }
+  .tri.tl { top: 0; left: -10vw; clip-path: polygon(0 0, 100% 0, 0 100%); }
+  .tri.br { bottom: -10vw; right: -10vw; clip-path: polygon(100% 0, 100% 100%, 0 100%); }
+  .tri::before {
+    content: ''; position: absolute; inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'><g fill='none' stroke='rgba(255,255,255,0.18)' stroke-width='2'><path d='M25 30 h25 a5 5 0 0 1 5 5 v10 a5 5 0 0 1 -5 5 h-25 a5 5 0 0 1 -5 -5 v-10 a5 5 0 0 1 5 -5 z'/><line x1='32' y1='30' x2='32' y2='50'/><circle cx='40' cy='40' r='3'/></g></svg>");
+    opacity: 0.7;
+  }
+
+  /* Hero */
+  .hero { position: relative; z-index: 5; text-align: center; padding: 40px 20px 30px; max-width: 1100px; margin: 0 auto; }
+  .hero h1 { font-size: 64px; font-weight: 700; margin: 0 0 20px; line-height: 1.1; letter-spacing: -1px; }
+  .hero h1 .strong { font-weight: 900; }
+  .pill { display: inline-block; padding: 14px 28px; border: 2px solid var(--red); border-radius: 8px; color: var(--red); font-weight: 800; font-size: 16px; background: white; margin-top: 8px; }
+
+  /* Compression type + output format row */
+  .ctype-row { position: relative; z-index: 5; max-width: 1100px; margin: 0 auto; display: flex; justify-content: flex-end; padding: 20px 40px 0; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .ctype-group { display: flex; align-items: center; gap: 10px; }
+  .ctype-label { color: var(--text); font-weight: 800; font-size: 13px; letter-spacing: 1px; }
+  .ctype-help { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: white; color: var(--text-muted); font-size: 11px; font-weight: 800; border: 1.5px solid var(--text-muted); cursor: help; }
+  .ctype-tabs { display: flex; border-radius: 6px; overflow: hidden; background: white; box-shadow: var(--shadow); border: 1px solid var(--border); }
+  .ctype-tabs button { background: white; border: 0; padding: 10px 22px; font-family: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; color: var(--text); cursor: pointer; transition: background .15s, color .15s; }
+  .ctype-tabs button + button { border-left: 1px solid var(--border); }
+  .ctype-tabs button:hover { background: var(--pink-bg); }
+  .ctype-tabs button.active { background: var(--red); color: white; }
+  .ctype-select {
+    font-family: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;
+    color: var(--text); background: white;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 32px 10px 16px; cursor: pointer;
+    box-shadow: var(--shadow); transition: border-color .15s, color .15s;
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%232F2A29' d='M0 0l5 6 5-6z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+  .ctype-select:hover { border-color: var(--red); color: var(--red); }
+  .ctype-select:focus { outline: none; border-color: var(--red); }
+  .ctype-select.active-convert { border-color: var(--red); color: var(--red); }
+
+  /* Drop zone */
+  .drop-wrap { position: relative; z-index: 5; max-width: 1100px; margin: 16px auto 0; padding: 0 40px; }
+  .drop {
+    display: block;
+    background: white;
+    border: 2.5px dashed var(--red);
+    border-radius: 12px;
+    padding: 60px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .drop:hover, .drop.over { background: var(--pink-bg); border-color: var(--red-dark); }
+  .drop .icon-stack { width: 80px; height: 80px; display: block; margin: 0 auto 14px; }
+  .drop input[type=file] { display: none; }
+  .drop .drop-msg { color: var(--red); font-weight: 800; font-size: 18px; margin-bottom: 8px; }
+  .drop .drop-sub { color: var(--text-muted); font-size: 14px; margin-bottom: 18px; }
+  .btn-select { display: inline-flex; align-items: center; gap: 8px; background: white; border: 1px solid var(--border); border-radius: 6px; padding: 10px 20px; font-family: inherit; font-size: 14px; font-weight: 700; color: var(--text); cursor: pointer; box-shadow: var(--shadow); }
+  .btn-select:hover { border-color: var(--red); color: var(--red); }
+  .btn-select svg { width: 16px; height: 16px; }
+
+  /* Custom-mode controls panel */
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; max-width: 1100px; margin: 16px auto 0; padding: 0 40px; }
+  .controls[hidden] { display: none; }
+  .ctl { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; box-shadow: var(--shadow); }
+  .ctl label { display:block; font-size:12px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+  .ctl label .val { float:right; color: var(--text); font-weight: 800; font-variant-numeric: tabular-nums; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--red); }
+  .ctl[hidden] { display: none; }
+
+  /* ===== File list (multi-file results table) ===== */
+  .filelist-wrap { position: relative; z-index: 5; max-width: 1100px; margin: 24px auto 0; padding: 0 40px; }
+  .filelist-wrap[hidden] { display: none; }
+  .filelist-card { background: white; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+  .filelist-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    background: var(--pink-bg);
+    flex-wrap: wrap; gap: 10px;
+  }
+  .filelist-header .summary { color: var(--text); font-weight: 800; font-size: 15px; }
+  .filelist-header .summary .saved-total { color: var(--green); }
+  .filelist-actions { display: flex; gap: 10px; }
+  .filelist-actions button {
+    background: var(--red); color: white; border: 0;
+    padding: 9px 18px; border-radius: 6px;
+    font-family: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.3px;
+    cursor: pointer; transition: background .15s;
+  }
+  .filelist-actions button:hover { background: var(--red-dark); }
+  .filelist-actions button.ghost {
+    background: white; color: var(--text); border: 1px solid var(--border);
+  }
+  .filelist-actions button.ghost:hover { border-color: var(--red); color: var(--red); }
+  .filelist-actions button[disabled] {
+    background: #DAD5D3; color: white; cursor: not-allowed;
+  }
+
+  table.filelist {
+    width: 100%; border-collapse: collapse; font-size: 14px;
+  }
+  table.filelist th {
+    text-align: left; padding: 12px 16px;
+    font-size: 11px; font-weight: 800; letter-spacing: 1px; color: var(--text-muted);
+    text-transform: uppercase;
+    background: white; border-bottom: 1px solid var(--border);
+  }
+  table.filelist td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  table.filelist tr:last-child td { border-bottom: none; }
+  table.filelist tr.row-error td { background: #FFF4F2; }
+  td.col-name { font-weight: 700; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.col-name .badge { display: inline-block; background: var(--pink-soft); color: var(--red); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; margin-left: 8px; vertical-align: 2px; }
+  td.col-before, td.col-after { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.col-after .size { color: var(--text); font-weight: 800; }
+  td.col-after .saved, td.col-after .grown {
+    display: inline-block; color: white;
+    padding: 2px 7px; border-radius: 4px;
+    font-weight: 800; font-size: 11px; margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  td.col-after .saved { background: var(--green); }
+  td.col-after .grown { background: #C28C00; }
+  td.col-status { min-width: 180px; }
+  td.col-action { white-space: nowrap; text-align: right; }
+  /* progress bar inside status cell */
+  .row-progress {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .row-progress .bar {
+    flex: 1; height: 4px; background: var(--pink-bg); border-radius: 2px; overflow: hidden;
+  }
+  .row-progress .bar > div {
+    height: 100%; background: var(--red);
+    width: 0%; transition: width .2s ease;
+  }
+  .row-progress .label {
+    font-size: 12px; color: var(--text-muted);
+    font-variant-numeric: tabular-nums; min-width: 60px; text-align: right;
+  }
+  .row-status-done { color: var(--green); font-weight: 800; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .row-status-error { color: var(--red); font-weight: 800; font-size: 12px; }
+  .row-status-grown { color: #C28C00; font-weight: 800; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .row-status-queued { color: var(--text-muted); font-weight: 700; font-size: 12px; letter-spacing: 0.5px; }
+
+  /* Row action buttons */
+  .btn-row {
+    background: white; color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px;
+    padding: 6px 12px; font-family: inherit; font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: all .15s;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn-row:hover { border-color: var(--red); color: var(--red); }
+  .btn-row.primary { background: var(--red); color: white; border-color: var(--red); }
+  .btn-row.primary:hover { background: var(--red-dark); border-color: var(--red-dark); color: white; }
+  .btn-row[disabled] { background: #F4F0EE; color: #B5ADAB; border-color: #ECE6E4; cursor: not-allowed; }
+  .btn-row svg { width: 14px; height: 14px; }
+  .row-actions { display: inline-flex; gap: 6px; }
+
+  /* Compare modal */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(47,42,41,0.7);
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: white; border-radius: 12px; overflow: hidden;
+    max-width: 1100px; width: 100%; max-height: 90vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,.4);
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+  }
+  .modal-head h2 { margin: 0; font-size: 18px; font-weight: 800; }
+  .modal-head .close {
+    background: none; border: 0; font-size: 24px;
+    cursor: pointer; color: var(--text-muted); padding: 4px 8px;
+  }
+  .modal-head .close:hover { color: var(--red); }
+  .modal-body {
+    flex: 1; overflow: auto; background: var(--pink-bg);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; min-height: 320px;
+  }
+  /* Image compare slider — sizes itself to the image's natural aspect
+     ratio, constrained by available modal-body space. */
+  .compare {
+    position: relative;
+    /* Shrink to image size; never exceed available viewport area. */
+    max-width: min(1000px, 100%);
+    max-height: 100%;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    border-radius: 8px;
+    background: #000;
+    /* Flex so the bg image dictates the container size. */
+    display: inline-flex;
+  }
+  .compare .bg-img {
+    display: block;
+    max-width: 100%;
+    /* Cap height so portraits don't blow up the modal. */
+    max-height: calc(90vh - 120px);
+    width: auto;
+    height: auto;
+    pointer-events: none;
+  }
+  .compare .top-img {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: fill;
+    clip-path: inset(0 50% 0 0);
+    transition: none;
+    pointer-events: none;
+  }
+  .compare .slider {
+    position: absolute; top: 0; bottom: 0; left: 50%;
+    width: 4px; background: white; transform: translateX(-50%);
+    cursor: ew-resize;
+    box-shadow: 0 0 8px rgba(0,0,0,.3);
+  }
+  .compare .slider::before {
+    content: ''; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 32px; height: 32px; background: white;
+    border-radius: 50%; box-shadow: 0 0 8px rgba(0,0,0,.3);
+  }
+  .compare .slider::after {
+    content: '⇄'; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: var(--text); font-weight: 700;
+    z-index: 1;
+  }
+  .compare-labels {
+    position: absolute; top: 12px; left: 12px; right: 12px;
+    display: flex; justify-content: space-between;
+    pointer-events: none;
+  }
+  .compare-labels span {
+    background: rgba(47,42,41,0.8); color: white;
+    padding: 4px 10px; border-radius: 4px;
+    font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  }
+
+  /* Footer */
+  footer { position: relative; z-index: 5; text-align: center; padding: 40px 20px 24px; color: var(--text-muted); font-size: 13px; }
+
+  /* ===== Responsive ===== */
+
+  /* Tablet */
+  @media (max-width: 900px) {
+    .hero { padding: 32px 16px 24px; }
+    .hero h1 { font-size: 48px; }
+    .pill { font-size: 14px; padding: 12px 22px; }
+    .ctype-row, .drop-wrap, .filelist-wrap, .controls { padding-left: 16px; padding-right: 16px; }
+    .ctype-row { justify-content: center; flex-wrap: wrap; }
+    .drop { padding: 48px 24px; }
+    .controls { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    table.filelist th:nth-child(2), table.filelist td:nth-child(2) { display: none; }
+    td.col-name { max-width: 200px; }
+  }
+
+  /* Phone — convert table to stacked cards */
+  @media (max-width: 640px) {
+    .hero { padding: 24px 14px 16px; }
+    .hero h1 { font-size: 32px; letter-spacing: -0.5px; margin-bottom: 14px; }
+    .pill { font-size: 12px; padding: 10px 16px; letter-spacing: 0.3px; }
+
+    .ctype-row { padding: 14px 14px 0; gap: 12px; font-size: 11px; flex-direction: column; align-items: stretch; }
+    .ctype-group { flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
+    .ctype-label { font-size: 11px; letter-spacing: 0.5px; }
+    .ctype-tabs { flex: 1; min-width: 0; }
+    .ctype-tabs button { flex: 1; padding: 10px 8px; font-size: 11px; letter-spacing: 0.3px; }
+    .ctype-select { flex: 1; min-width: 0; font-size: 11px; padding: 9px 28px 9px 12px; }
+
+    .drop-wrap, .filelist-wrap, .controls { padding-left: 14px; padding-right: 14px; }
+    .drop { padding: 32px 16px; border-width: 2px; }
+    .drop .icon-stack { width: 60px; height: 60px; margin-bottom: 10px; }
+    .drop .drop-msg { font-size: 15px; }
+    .drop .drop-sub { font-size: 12px; margin-bottom: 14px; }
+    .btn-select { padding: 9px 16px; font-size: 13px; }
+
+    .controls { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .ctl { padding: 10px 12px; }
+    .ctl label { font-size: 11px; }
+
+    /* Header inside results card */
+    .filelist-header { padding: 12px 14px; }
+    .filelist-header .summary { font-size: 13px; width: 100%; }
+    .filelist-actions { width: 100%; }
+    .filelist-actions button {
+      flex: 1; padding: 9px 10px; font-size: 12px; letter-spacing: 0;
+    }
+
+    /* Convert table → cards */
+    table.filelist, table.filelist tbody, table.filelist tr, table.filelist td {
+      display: block; width: 100%;
+    }
+    table.filelist thead { display: none; }
+    table.filelist tr {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    table.filelist tr:last-child { border-bottom: none; }
+    table.filelist td {
+      padding: 4px 0; border: none;
+    }
+    td.col-name {
+      max-width: 100%; font-size: 14px;
+      display: flex !important; align-items: center; gap: 8px;
+      margin-bottom: 6px;
+    }
+    td.col-name .badge { margin-left: 0; flex-shrink: 0; }
+    /* Show "Before" again on mobile but inline with After */
+    table.filelist td.col-before { display: block !important; }
+    td.col-before, td.col-after {
+      display: inline-block !important; font-size: 13px;
+      white-space: normal;
+    }
+    td.col-before::before { content: 'Before: '; color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td.col-after::before { content: 'After: '; color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td.col-after { margin-left: 14px; }
+    td.col-after .saved, td.col-after .grown { font-size: 10px; padding: 1px 5px; }
+
+    td.col-status { min-width: 0; margin-top: 4px; }
+    td.col-action { text-align: left; margin-top: 10px; }
+    .row-actions { display: flex; width: 100%; gap: 8px; }
+    .btn-row { flex: 1; justify-content: center; padding: 9px 8px; font-size: 13px; }
+
+    /* Compare modal */
+    .modal-overlay { padding: 0; align-items: stretch; }
+    .modal {
+      max-height: 100vh; max-height: 100dvh;
+      border-radius: 0;
+    }
+    .modal-head { padding: 12px 16px; }
+    .modal-head h2 { font-size: 15px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .modal-body { padding: 12px; min-height: 0; }
+    .compare .bg-img { max-height: calc(100dvh - 80px); }
+    .compare-labels span { font-size: 9px; padding: 3px 7px; letter-spacing: 0.5px; }
+    .compare .slider::before { width: 40px; height: 40px; }
+    .compare .slider::after { font-size: 18px; }
+
+    /* Smaller background triangles so they don't dominate */
+    .tri { width: 75vw; height: 75vw; opacity: 0.85; }
+
+    footer { padding: 24px 14px 20px; font-size: 11px; line-height: 1.6; }
+  }
+
+  /* Very small phones */
+  @media (max-width: 360px) {
+    .hero h1 { font-size: 26px; }
+    .ctype-tabs button { font-size: 10px; padding: 9px 4px; }
+    .controls { grid-template-columns: 1fr; }
+  }
