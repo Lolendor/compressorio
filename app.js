@@ -60,6 +60,95 @@ gifsicleReady = true;
 checkReady();
 
 // ============================================================
+//  Worker pool for parallel raster compression (PNG/JPG/WebP)
+//
+//  Each worker is a real OS thread, so N workers compress N images
+//  truly in parallel and the UI thread stays responsive. SVG and GIF
+//  are NOT routed here — SVG rasterisation needs createImageBitmap on
+//  an <svg> source (DOM-only) and gifsicle/svgo run fine on main.
+// ============================================================
+const POOL_SIZE = Math.max(1, Math.min(
+  (navigator.hardwareConcurrency || 4) - 1, // leave one core for the UI
+  6                                          // diminishing returns past ~6
+));
+const pool = [];          // [{ worker, busy }]
+let jobSeq = 0;
+const jobCallbacks = new Map(); // id → { resolve, reject, onProgress }
+let poolInitStarted = false;
+
+function ensurePool() {
+  if (poolInitStarted) return;
+  poolInitStarted = true;
+  for (let i = 0; i < POOL_SIZE; i++) {
+    let worker;
+    try {
+      worker = new Worker('./worker.js', { type: 'module' });
+    } catch (e) {
+      console.warn('Worker spawn failed, falling back to main thread:', e);
+      break;
+    }
+    const slot = { worker, busy: false };
+    worker.onmessage = (e) => handleWorkerMessage(slot, e.data);
+    worker.onerror = (e) => console.error('worker error:', e.message || e);
+    worker.postMessage({ type: 'init' });
+    pool.push(slot);
+  }
+}
+
+function handleWorkerMessage(slot, msg) {
+  if (msg.type === 'ready') return;
+  const cb = jobCallbacks.get(msg.id);
+  if (!cb) return;
+  if (msg.type === 'progress') {
+    cb.onProgress && cb.onProgress(msg.value);
+  } else if (msg.type === 'done') {
+    jobCallbacks.delete(msg.id);
+    slot.busy = false;
+    cb.resolve({ data: msg.data, stats: msg.stats, outType: msg.outType });
+    pumpQueue();
+  } else if (msg.type === 'error') {
+    jobCallbacks.delete(msg.id);
+    slot.busy = false;
+    cb.reject(new Error(msg.message));
+    pumpQueue();
+  }
+}
+
+// Pending jobs waiting for a free worker.
+const poolQueue = []; // [{ op, bytes, sourceType, target, opts, onProgress, resolve, reject }]
+
+function runInWorker(op, bytes, sourceType, target, opts, onProgress) {
+  ensurePool();
+  // No workers available at all → signal caller to use the main thread.
+  if (!pool.length) return null;
+  return new Promise((resolve, reject) => {
+    poolQueue.push({ op, bytes, sourceType, target, opts, onProgress, resolve, reject });
+    pumpQueue();
+  });
+}
+
+function pumpQueue() {
+  for (const slot of pool) {
+    if (slot.busy) continue;
+    const job = poolQueue.shift();
+    if (!job) break;
+    slot.busy = true;
+    const id = ++jobSeq;
+    jobCallbacks.set(id, { resolve: job.resolve, reject: job.reject, onProgress: job.onProgress });
+    // Copy the input buffer (no transfer) so the caller keeps its own
+    // bytes for the smart-fallback size check / re-download.
+    slot.worker.postMessage({
+      type: 'job', id, op: job.op,
+      bytes: job.bytes, sourceType: job.sourceType, target: job.target, opts: job.opts,
+    });
+  }
+}
+
+// Warm up the pool right away so the first compression isn't delayed by
+// codec loading inside the workers.
+ensurePool();
+
+// ============================================================
 //  Mode (LOSSY / LOSSLESS / CUSTOM)
 // ============================================================
 let mode = 'lossy';
@@ -780,7 +869,10 @@ function buildJpegIccApp2(icc) {
 // ============================================================
 const items = [];      // [{ id, file, type, bytes, status, progress, outBytes, outType, error }]
 let nextId = 0;
-const MAX_PARALLEL = 2;
+// processOne is now lightweight (reads the file, hands the bytes to the
+// worker pool, awaits the result), so we let many run concurrently and
+// let the pool itself throttle actual CPU work to POOL_SIZE threads.
+const MAX_PARALLEL = 64;
 let activeWorkers = 0;
 let allCodecsReadyForRun = () => goReady && mozjpegReady && webpReady && gifsicleReady && svgoReady;
 
@@ -979,21 +1071,47 @@ async function processOne(it) {
                          && it.type !== 'gif'
                          && !(it.type === 'svg' && (!targetFmt || targetFmt === 'svg'));
 
+    // Can this job run in a worker? Workers handle raster pipelines
+    // only. SVG sources need DOM-based rasterisation, GIF needs
+    // gifsicle on the main thread, and SVG→SVG / GIF stay on main.
+    const isConvert = !!(targetFmt && targetFmt !== it.type) || needsRescale;
+    const workerTarget = isConvert ? (targetFmt || it.type) : it.type;
+    const rasterIn  = (it.type === 'jpg' || it.type === 'webp' || it.type === 'png');
+    const rasterOut = (workerTarget === 'jpg' || workerTarget === 'webp' || workerTarget === 'png');
+    const canUseWorker = rasterIn && rasterOut && it.type !== 'gif' && it.type !== 'svg';
+
     let res;
-    if (targetFmt && targetFmt !== it.type) {
-      res = await convertTo(targetFmt, buf, it.type, opts, onProgress);
-      it.outType = targetFmt;
-    } else if (needsRescale) {
-      // Re-encode into the *same* format but at a different pixel size.
-      res = await convertTo(it.type, buf, it.type, opts, onProgress);
-      it.outType = it.type;
+    if (canUseWorker) {
+      const op = isConvert ? 'convert' : 'compress';
+      const wres = await runInWorker(op, buf, it.type, workerTarget, opts, onProgress);
+      if (wres) {
+        res = { data: wres.data, stats: wres.stats };
+        it.outType = wres.outType;
+      } else {
+        // Pool unavailable → run on main thread instead.
+        res = await runOnMain();
+      }
     } else {
-      if (it.type === 'jpg')      res = await compressJpg(buf, opts, onProgress);
-      else if (it.type === 'webp')res = await compressWebp(buf, opts, onProgress);
-      else if (it.type === 'gif') res = await compressGif(buf, opts, onProgress);
-      else if (it.type === 'svg') res = await compressSvg(buf, opts, onProgress);
-      else                        res = await compressPng(buf, opts, onProgress);
-      it.outType = it.type;
+      res = await runOnMain();
+    }
+
+    async function runOnMain() {
+      let r;
+      if (targetFmt && targetFmt !== it.type) {
+        r = await convertTo(targetFmt, buf, it.type, opts, onProgress);
+        it.outType = targetFmt;
+      } else if (needsRescale) {
+        r = await convertTo(it.type, buf, it.type, opts, onProgress);
+        it.outType = it.type;
+      } else {
+        if (it.type === 'jpg')      r = await compressJpg(buf, opts, onProgress);
+        else if (it.type === 'webp')r = await compressWebp(buf, opts, onProgress);
+        else if (it.type === 'gif') r = await compressGif(buf, opts, onProgress);
+        else if (it.type === 'svg') r = await compressSvg(buf, opts, onProgress);
+        else                        r = await compressPng(buf, opts, onProgress);
+        it.outType = it.type;
+      }
+      return r;
     }
 
     let outBytes = res.data;
