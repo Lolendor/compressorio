@@ -82,3 +82,11 @@ python3 -m http.server 8000
 - pngquant algorithm reimplemented in Go, compiled to wasm with TinyGo.
 
 UI design heavily inspired by [compressor.io](https://compressor.io/).
+
+## License
+
+Licensed under the **GNU General Public License v3.0 (or later)** —
+see [LICENSE](LICENSE). You're free to use, modify and redistribute,
+provided that derivatives stay open-source under the same license and
+keep the original author attribution. Bundled codecs retain their own
+licenses (BSD / MIT / GPL); see the LICENSE file for the full list.
