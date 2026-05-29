@@ -37,9 +37,13 @@ No build step, no Node.js, no server config.
 
 | File | Size | What it is |
 |---|---:|---|
-| `index.html` | ~38 KB | UI (vanilla JS modules). |
-| `wasm_exec.js` | ~17 KB | Go runtime glue. |
-| `compressor.wasm` | ~2.7 MB | Pure-Go PNG compressor (Wu + Floyd-Steinberg). |
+| `index.html` | ~9 KB | UI markup. |
+| `style.css` | ~19 KB | Styles. |
+| `app.js` | ~60 KB | App logic + worker pool. |
+| `codec-core.js` | ~19 KB | Shared compression core (main + worker). |
+| `worker.js` | ~4 KB | Web Worker for parallel raster compression. |
+| `codecs/png/wasm_exec.js` | ~17 KB | TinyGo runtime glue. |
+| `codecs/png/compressor.wasm` | ~420 KB | TinyGo PNG compressor (Wu + Floyd-Steinberg). |
 | `codecs/jpeg/mozjpeg_*` | ~490 KB | mozjpeg encode + decode (WASM). |
 | `codecs/webp/webp_*` | ~490 KB | libwebp encode + decode (WASM). |
 | `codecs/gif/gifsicle.min.js` | ~340 KB | gifsicle (inline WASM). |
@@ -47,7 +51,11 @@ No build step, no Node.js, no server config.
 | `.nojekyll` | 0 B | Don't filter underscored files. |
 | `.github/workflows/pages.yml` | — | Auto-deploy workflow. |
 
-Total: ~4.9 MB raw, ~1.5 MB gzip. Works fully offline after first paint.
+Total: ~2.6 MB raw, ~1.0 MB gzip. Works fully offline after first paint.
+
+The PNG compressor is built with **TinyGo** (not the standard Go
+toolchain), which shrinks the wasm from ~2.7 MB down to ~420 KB
+(~160 KB gzipped) for byte-identical output.
 
 ## Local preview
 
@@ -71,6 +79,6 @@ python3 -m http.server 8000
 - mozjpeg, libwebp WASM: [@jsquash/jpeg](https://github.com/jamsinclair/jSquash), [@jsquash/webp](https://github.com/jamsinclair/jSquash).
 - gifsicle WASM: [renzhezhilu/gifsicle-wasm-browser](https://github.com/renzhezhilu/gifsicle-wasm-browser).
 - SVGO 3: [svg/svgo](https://github.com/svg/svgo).
-- pngquant algorithm rewritten in Go for browser.
+- pngquant algorithm reimplemented in Go, compiled to wasm with TinyGo.
 
 UI design heavily inspired by [compressor.io](https://compressor.io/).
