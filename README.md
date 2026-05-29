@@ -1,5 +1,7 @@
 # Compressor — in-browser image compressor
 
+### → [Try it live](https://lolendor.github.io/compressorio/)
+
 A standalone web app that replicates compressor.io entirely in the browser.
 Drop PNG/JPG/WebP/GIF/SVG, get byte-for-byte identical output (for JPG and
 GIF — literally to the byte), with **no backend** and **no upload anywhere**.
