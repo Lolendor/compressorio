@@ -1,0 +1,31 @@
+Compressor — Free Online Image Compression
+Copyright (C) 2025 Lolendor (https://github.com/Lolendor)
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+---
+
+This project incorporates the following third-party components, each
+under their own license:
+
+  mozjpeg (WASM)        — BSD-3-Clause / IJG / zlib
+  libwebp (WASM)        — BSD-3-Clause
+  gifsicle (WASM)       — GPL-2.0-or-later
+  SVGO                  — MIT
+  libimagequant / pngquant algorithm — GPL-3.0 (Wu quantizer reimplemented in Go)
+  TinyGo wasm_exec.js   — BSD-3-Clause (The Go Authors, modified by TinyGo)
+
+See the respective codec directories for individual license files.
