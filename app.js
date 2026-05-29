@@ -29,7 +29,7 @@ function checkReady() {
 setGlobalStatus('Loading WASM codecs…');
 
 const go = new Go();
-WebAssembly.instantiateStreaming(fetch('compressor.wasm'), go.importObject)
+WebAssembly.instantiateStreaming(fetch('codecs/png/compressor.wasm'), go.importObject)
   .then(({instance}) => go.run(instance))
   .catch(err => setGlobalStatus('Failed to load Go-WASM: ' + err.message));
 

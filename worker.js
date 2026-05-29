@@ -31,11 +31,11 @@ let pngReady = false;
 // there is no importScripts(), so we fetch the source and evaluate it
 // in the global scope via an indirect Function call.
 async function loadTinyGoPng() {
-  const src = await (await fetch('./wasm_exec.js')).text();
+  const src = await (await fetch('./codecs/png/wasm_exec.js')).text();
   (0, eval)(src); // defines globalThis.Go
   const go = new globalThis.Go();
   const { instance } = await WebAssembly.instantiateStreaming(
-    fetch('compressor.wasm'), go.importObject);
+    fetch('codecs/png/compressor.wasm'), go.importObject);
   // go.run blocks (the Go side does `select {}`), so don't await it.
   go.run(instance);
   // The Go main sets globalThis.compressPNG and calls compressorOnReady.
