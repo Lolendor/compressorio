@@ -85,7 +85,7 @@
   .btn-select svg { width: 16px; height: 16px; }
 
   /* Custom-mode controls panel */
-  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; max-width: 1100px; margin: 16px auto 0; padding: 0 40px; }
+  .controls { position: relative; z-index: 5; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; max-width: 1100px; margin: 16px auto 0; padding: 0 40px; }
   .controls[hidden] { display: none; }
   .ctl { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; box-shadow: var(--shadow); }
   .ctl label { display:block; font-size:12px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
