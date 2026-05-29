@@ -915,6 +915,7 @@ function updateSummary() {
   if (error > 0) txt += ` · ${error} error`;
   $('fileSummary').innerHTML = txt;
   $('downloadAll').disabled = done === 0;
+  $('downloadZip').disabled = done === 0;
 }
 
 async function startWorkers() {
@@ -1046,6 +1047,163 @@ function downloadOne(it) {
 $('downloadAll').addEventListener('click', () => {
   items.forEach(it => { if (it.status === 'done') downloadOne(it); });
 });
+
+$('downloadZip').addEventListener('click', async () => {
+  const btn = $('downloadZip');
+  const originalText = btn.textContent;
+  const done = items.filter(it => it.status === 'done' && it.outBytes);
+  if (!done.length) return;
+  btn.disabled = true;
+  btn.textContent = 'Zipping…';
+  try {
+    // Build per-file entries with the same name the single Download
+    // button would produce. Deduplicate collisions ("a.png" twice →
+    // "a.png", "a (2).png") so the zip never overwrites itself.
+    const seen = new Map();
+    const entries = done.map(it => {
+      const base = it.file.name.replace(/\.[^.]+$/, '');
+      let name = base + suffixFor(it);
+      const count = (seen.get(name) || 0) + 1;
+      seen.set(name, count);
+      if (count > 1) {
+        const dot = name.lastIndexOf('.');
+        name = (dot > 0 ? name.slice(0, dot) + ' (' + count + ')' + name.slice(dot)
+                        : name + ' (' + count + ')');
+      }
+      return { name, data: it.outBytes };
+    });
+    const zipBytes = buildStoreZip(entries);
+    const blob = new Blob([zipBytes], { type: 'application/zip' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'compressor-' + new Date().toISOString().slice(0, 10) + '.zip';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (e) {
+    console.error('zip failed:', e);
+    alert('Failed to build zip: ' + (e && e.message ? e.message : e));
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = items.filter(it => it.status === 'done').length === 0;
+  }
+});
+
+// =============================================================
+//  Minimal STORE-only ZIP encoder (ZIP 2.0, no compression).
+//  Our inputs are already-compressed media (JPG/PNG/WebP/GIF) so
+//  DEFLATE would save 1–2% at best while adding a ~30 KB pako
+//  dependency. STORE keeps the bundle dependency-free.
+//
+//  Spec: PKWARE APPNOTE 6.3.4. We only implement what real
+//  unzippers actually need:
+//    - Local File Header (per entry)
+//    - File data (uncompressed)
+//    - Central Directory entry (per entry)
+//    - End of Central Directory record
+//
+//  Files are stored UTF-8 (general purpose bit 11 set) so non-ASCII
+//  filenames open correctly on macOS / Linux / Windows 10+.
+// =============================================================
+function buildStoreZip(entries) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+
+  for (const e of entries) {
+    const nameBytes = enc.encode(e.name);
+    const data = e.data;
+    const crc = crc32(data);
+    const size = data.byteLength >>> 0;
+
+    // Local file header (30 bytes + name)
+    const lfh = new Uint8Array(30 + nameBytes.length);
+    const lfhV = new DataView(lfh.buffer);
+    lfhV.setUint32(0,  0x04034b50, true); // signature
+    lfhV.setUint16(4,  20, true);         // version needed
+    lfhV.setUint16(6,  0x0800, true);     // flags: bit 11 = UTF-8 filename
+    lfhV.setUint16(8,  0, true);          // method: 0 = STORE
+    lfhV.setUint16(10, 0, true);          // mod time
+    lfhV.setUint16(12, 0x21, true);       // mod date (1980-01-01)
+    lfhV.setUint32(14, crc, true);
+    lfhV.setUint32(18, size, true);       // compressed size
+    lfhV.setUint32(22, size, true);       // uncompressed size
+    lfhV.setUint16(26, nameBytes.length, true);
+    lfhV.setUint16(28, 0, true);          // extra length
+    lfh.set(nameBytes, 30);
+
+    parts.push(lfh, data);
+
+    // Central directory file header (46 bytes + name)
+    const cdh = new Uint8Array(46 + nameBytes.length);
+    const cdhV = new DataView(cdh.buffer);
+    cdhV.setUint32(0,  0x02014b50, true); // signature
+    cdhV.setUint16(4,  20, true);         // version made by
+    cdhV.setUint16(6,  20, true);         // version needed
+    cdhV.setUint16(8,  0x0800, true);     // flags
+    cdhV.setUint16(10, 0, true);          // method
+    cdhV.setUint16(12, 0, true);          // mod time
+    cdhV.setUint16(14, 0x21, true);       // mod date
+    cdhV.setUint32(16, crc, true);
+    cdhV.setUint32(20, size, true);       // compressed size
+    cdhV.setUint32(24, size, true);       // uncompressed size
+    cdhV.setUint16(28, nameBytes.length, true);
+    cdhV.setUint16(30, 0, true);          // extra length
+    cdhV.setUint16(32, 0, true);          // comment length
+    cdhV.setUint16(34, 0, true);          // disk number
+    cdhV.setUint16(36, 0, true);          // internal attrs
+    cdhV.setUint32(38, 0, true);          // external attrs
+    cdhV.setUint32(42, offset, true);     // LFH offset
+    cdh.set(nameBytes, 46);
+    central.push(cdh);
+
+    offset += lfh.byteLength + size;
+  }
+
+  const centralStart = offset;
+  let centralSize = 0;
+  for (const c of central) { parts.push(c); centralSize += c.byteLength; }
+
+  // End of central directory (22 bytes)
+  const eocd = new Uint8Array(22);
+  const eocdV = new DataView(eocd.buffer);
+  eocdV.setUint32(0,  0x06054b50, true); // signature
+  eocdV.setUint16(4,  0, true);          // disk #
+  eocdV.setUint16(6,  0, true);          // disk w/ CD
+  eocdV.setUint16(8,  entries.length, true);
+  eocdV.setUint16(10, entries.length, true);
+  eocdV.setUint32(12, centralSize, true);
+  eocdV.setUint32(16, centralStart, true);
+  eocdV.setUint16(20, 0, true);          // .zip comment length
+  parts.push(eocd);
+
+  // Concatenate.
+  let total = 0;
+  for (const p of parts) total += p.byteLength;
+  const out = new Uint8Array(total);
+  let p = 0;
+  for (const part of parts) { out.set(part, p); p += part.byteLength; }
+  return out;
+}
+
+// Standard IEEE 802.3 CRC-32 with reflected polynomial 0xEDB88320,
+// cached lookup table. ~25 MB/s in V8 — fine for tens of MB of input.
+const CRC32_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[i] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    c = CRC32_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
 $('clearAll').addEventListener('click', () => {
   items.length = 0;
   renderAll();
