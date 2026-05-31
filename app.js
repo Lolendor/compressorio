@@ -1445,3 +1445,54 @@ drop.addEventListener('drop', e => {
     addFiles(e.dataTransfer.files);
   }
 });
+
+// ============================================================
+//  Clipboard paste (Cmd/Ctrl+V anywhere on the page)
+// ============================================================
+const SUPPORTED_PASTE_TYPES = /^image\/(png|jpeg|gif|webp|svg\+xml)$/;
+window.addEventListener('paste', e => {
+  // Don't hijack paste while the user is typing into a field.
+  const el = e.target;
+  if (el && (el.isContentEditable ||
+             el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+
+  const dt = e.clipboardData;
+  if (!dt) return;
+
+  const files = [];
+  // Prefer the items API (covers screenshots / copied images that have
+  // no File entry), fall back to dt.files (covers copied files from the
+  // OS file manager).
+  if (dt.items && dt.items.length) {
+    for (const item of dt.items) {
+      if (item.kind === 'file' && SUPPORTED_PASTE_TYPES.test(item.type)) {
+        const f = item.getAsFile();
+        if (f) files.push(renameIfNeeded(f));
+      }
+    }
+  }
+  if (!files.length && dt.files && dt.files.length) {
+    for (const f of dt.files) {
+      if (SUPPORTED_PASTE_TYPES.test(f.type)) files.push(renameIfNeeded(f));
+    }
+  }
+
+  if (files.length) {
+    e.preventDefault();
+    addFiles(files);
+  }
+});
+
+// Clipboard images (screenshots) usually arrive as a nameless or
+// generically-named Blob. Give them a unique, extension-correct name so
+// the results list and the downloaded file aren't all called "image.png".
+function renameIfNeeded(file) {
+  const hasRealName = file.name && file.name !== 'image.png' && /\.[a-z0-9]+$/i.test(file.name);
+  if (hasRealName) return file;
+  const ext = ({
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif',
+    'image/webp': 'webp', 'image/svg+xml': 'svg',
+  })[file.type] || 'png';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return new File([file], `pasted-${stamp}.${ext}`, { type: file.type });
+}
