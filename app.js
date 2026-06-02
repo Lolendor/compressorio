@@ -1566,9 +1566,14 @@ function svgDisplayBox(text) {
   return                  { w: Math.round(TARGET * ratio), h: TARGET };
 }
 function setCompareAt(frac) {
-  const top = $('cmpTop'), sl = $('cmpSlider');
-  top.style.clipPath = `inset(0 ${(1-frac)*100}% 0 0)`;
-  sl.style.left = (frac*100) + '%';
+  const top = $('cmpTop'), bg = $('cmpBg'), sl = $('cmpSlider');
+  // Complementary clips so the two layers never overlap: ORIGINAL (top)
+  // shows only the left of the slider, COMPRESSED (bg) only the right.
+  // Without this the bottom layer paints full-width and a semi-transparent
+  // top layer blends both versions together on the left side.
+  top.style.clipPath = `inset(0 ${(1 - frac) * 100}% 0 0)`;
+  bg.style.clipPath  = `inset(0 0 0 ${frac * 100}%)`;
+  sl.style.left = (frac * 100) + '%';
 }
 $('compareClose').addEventListener('click', () => $('compareModal').classList.remove('open'));
 $('compareModal').addEventListener('click', e => {

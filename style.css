@@ -249,6 +249,11 @@
     width: auto;
     height: auto;
     pointer-events: none;
+    /* The compressed image only paints the RIGHT half. Clipping both
+       layers complementarily (instead of stacking a full image under a
+       clipped one) means transparent/semi-transparent pixels never show
+       both versions blended on top of each other. */
+    clip-path: inset(0 0 0 50%);
   }
   /* SVG compare: container has an explicit pixel size set via JS, so
      both image layers fill it instead of trying to use their own
