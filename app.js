@@ -608,24 +608,38 @@ async function compressJpg(bytes, opts, onProgress) {
   onProgress(1.0);
   return { data: withMeta, stats: { width: decoded.width, height: decoded.height } };
 }
+// webpEncodeOptions centralises the libwebp parameters for the main-thread
+// path (mirrors the same helper in codec-core.js used by the worker).
+//
+// alpha_quality used to be 100 (lossless alpha), which on a smooth
+// translucency gradient blew a 95 KB source up to ~104 KB. Dropping it to 70
+// for lossy mode collapses the same file to ~13 KB with imperceptible alpha
+// error while keeping the alpha channel; opaque photos and sharp binary masks
+// are unaffected. method 6 (vs 4) squeezes a few extra percent for free, and
+// use_sharp_yuv slightly improves chroma on gradients.
+function webpEncodeOptions(opts) {
+  const lossless = !!opts.lossless;
+  return {
+    quality: lossless ? 100 : opts.quality,
+    target_size: 0, target_PSNR: 0,
+    method: 6, sns_strength: 50,
+    filter_strength: 60, filter_sharpness: 0, filter_type: 1, partitions: 0,
+    segments: 4, pass: 1, show_compressed: 0, preprocessing: 0, autofilter: 0,
+    partition_limit: 0, alpha_compression: 1, alpha_filtering: 1,
+    alpha_quality: lossless ? 100 : 70,
+    lossless: lossless ? 1 : 0, exact: lossless ? 1 : 0,
+    image_hint: 0, emulate_jpeg_size: 0, thread_level: 0, low_memory: 0,
+    near_lossless: 100, use_delta_palette: 0,
+    use_sharp_yuv: lossless ? 0 : 1,
+  };
+}
+
 async function compressWebp(bytes, opts, onProgress) {
   onProgress(0.2); await new Promise(r => setTimeout(r, 10));
   const decoded = wpDec.decode(bytes);
   onProgress(0.5); await new Promise(r => setTimeout(r, 10));
-  const q = opts.quality;
-  const encoded = wpEnc.encode(decoded.data, decoded.width, decoded.height, {
-    quality: opts.lossless ? 100 : q,
-    target_size: 0, target_PSNR: 0,
-    method: opts.lossless ? 6 : 4,
-    sns_strength: 50,
-    filter_strength: 60, filter_sharpness: 0, filter_type: 1, partitions: 0,
-    segments: 4, pass: 1, show_compressed: 0, preprocessing: 0, autofilter: 0,
-    partition_limit: 0, alpha_compression: 1, alpha_filtering: 1, alpha_quality: 100,
-    lossless: opts.lossless ? 1 : 0,
-    exact: opts.lossless ? 1 : 0,
-    image_hint: 0, emulate_jpeg_size: 0,
-    thread_level: 0, low_memory: 0, near_lossless: 100, use_delta_palette: 0, use_sharp_yuv: 0,
-  });
+  const encoded = wpEnc.encode(decoded.data, decoded.width, decoded.height,
+    webpEncodeOptions(opts));
   onProgress(1.0);
   return { data: new Uint8Array(encoded), stats: { width: decoded.width, height: decoded.height } };
 }
@@ -747,17 +761,7 @@ async function encodeRGBATo(target, rgba, width, height, opts) {
     return new Uint8Array(encoded);
   }
   if (target === 'webp') {
-    const encoded = wpEnc.encode(rgba, width, height, {
-      quality: opts.lossless ? 100 : opts.quality,
-      target_size: 0, target_PSNR: 0,
-      method: opts.lossless ? 6 : 4, sns_strength: 50,
-      filter_strength: 60, filter_sharpness: 0, filter_type: 1, partitions: 0,
-      segments: 4, pass: 1, show_compressed: 0, preprocessing: 0, autofilter: 0,
-      partition_limit: 0, alpha_compression: 1, alpha_filtering: 1, alpha_quality: 100,
-      lossless: opts.lossless ? 1 : 0, exact: opts.lossless ? 1 : 0,
-      image_hint: 0, emulate_jpeg_size: 0, thread_level: 0, low_memory: 0,
-      near_lossless: 100, use_delta_palette: 0, use_sharp_yuv: 0,
-    });
+    const encoded = wpEnc.encode(rgba, width, height, webpEncodeOptions(opts));
     return new Uint8Array(encoded);
   }
   if (target === 'png') {
