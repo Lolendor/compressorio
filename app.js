@@ -12,7 +12,7 @@ function formatBytes(n) {
 // Module readiness
 let goReady = false, mozjpegReady = false, webpReady = false, gifsicleReady = false, svgoReady = false;
 let mjEnc = null, mjDec = null, wpEnc = null, wpDec = null;
-let svgoOptimize = null, gifsicleMod = null;
+let svgoOptimize = null, gifsicleMod = null, gif2webpMod = null;
 
 function setGlobalStatus(msg) {
   // Helper for showing loading status under drop zone (only before first file)
@@ -58,6 +58,14 @@ import gifsicleBrowser from './codecs/gif/gifsicle.min.js?v=3';
 gifsicleMod = gifsicleBrowser;
 gifsicleReady = true;
 checkReady();
+
+// GIF → animated WebP codec (libwebp WebPAnimEncoder + giflib, wasm). Loaded
+// lazily in the background; only needed when the user transcodes a GIF to
+// WebP, so it does not gate overall readiness.
+import gif2webpFactory from './codecs/gif2webp/gif2webp.js';
+gif2webpFactory({ locateFile: f => 'codecs/gif2webp/' + f })
+  .then(m => { gif2webpMod = m; })
+  .catch(err => console.error('gif2webp load failed:', err && err.message));
 
 // ============================================================
 //  Worker pool for parallel raster compression (PNG/JPG/WebP)
@@ -659,6 +667,55 @@ async function compressGif(bytes, opts, onProgress) {
   onProgress(1.0);
   return { data: new Uint8Array(out), stats: {} };
 }
+
+// convertGifToWebp turns an animated/transparent GIF into an animated WebP
+// using the gif2webp wasm codec (libwebp WebPAnimEncoder + giflib). Frames,
+// loop count, disposal and per-frame alpha are all preserved. To match
+// compressor.io's size we encode both a lossy and a lossless variant and keep
+// the smaller (mirrors gif2webp -mixed / -min_size).
+async function convertGifToWebp(bytes, opts, onProgress) {
+  onProgress(0.1); await new Promise(r => setTimeout(r, 10));
+  const M = gif2webpMod;
+  if (!M) throw new Error('GIF→WebP codec still loading, try again in a moment');
+
+  const encodeOnce = (quality, method, lossless) => {
+    const inPtr = M._malloc(bytes.length);
+    M.HEAPU8.set(bytes, inPtr);
+    const lenPtr = M._malloc(4);
+    let outArr = null;
+    try {
+      const outPtr = M._gif2webp_encode(inPtr, bytes.length, quality, method,
+                                        lossless ? 1 : 0, lenPtr);
+      const outLen = M.getValue(lenPtr, 'i32');
+      if (outPtr && outLen > 0) {
+        outArr = M.HEAPU8.slice(outPtr, outPtr + outLen);
+        M._gif2webp_free(outPtr);
+      }
+    } finally {
+      M._free(inPtr);
+      M._free(lenPtr);
+    }
+    return outArr;
+  };
+
+  let out;
+  if (opts.lossless) {
+    out = encodeOnce(100, 6, true);
+  } else {
+    onProgress(0.4);
+    const q = (typeof opts.quality === 'number') ? opts.quality : 70;
+    const lossy = encodeOnce(q, 6, false);
+    onProgress(0.7);
+    const lossless = encodeOnce(100, 6, true);
+    out = (!lossy) ? lossless
+        : (!lossless) ? lossy
+        : (lossless.length < lossy.length ? lossless : lossy);
+  }
+  if (!out) throw new Error('GIF→WebP encode failed');
+  onProgress(1.0);
+  return { data: out, stats: {} };
+}
+
 async function compressSvg(bytes, opts, onProgress) {
   onProgress(0.2); await new Promise(r => setTimeout(r, 10));
   const text = new TextDecoder('utf-8').decode(bytes);
@@ -1056,13 +1113,15 @@ async function processOne(it) {
     };
 
     // Decide whether to transcode to a different output format.
-    // GIF is kept as-is even when a target is selected — converting it
-    // would drop every frame after the first. SVG → raster is allowed
-    // because the user explicitly opted in by changing the format
+    // GIF → WebP is allowed and produces an ANIMATED, transparency-preserving
+    // WebP via the gif2webp wasm codec. Any other GIF target is rejected
+    // (rasterising a GIF would drop every frame after the first). SVG → raster
+    // is allowed because the user explicitly opted in by changing the format
     // dropdown; we rasterize at the SVG's intrinsic size (or 1024×1024
     // fallback if it has none) in decodeToRGBA.
+    const gifToWebp = (it.type === 'gif' && outputFormat === 'webp');
     const targetFmt = (outputFormat !== 'original'
-                       && it.type !== 'gif')
+                       && (it.type !== 'gif' || gifToWebp))
                       ? outputFormat : null;
 
     // A non-1× scale requires going through the decode→resize→encode
@@ -1101,7 +1160,10 @@ async function processOne(it) {
 
     async function runOnMain() {
       let r;
-      if (targetFmt && targetFmt !== it.type) {
+      if (gifToWebp) {
+        r = await convertGifToWebp(buf, opts, onProgress);
+        it.outType = 'webp';
+      } else if (targetFmt && targetFmt !== it.type) {
         r = await convertTo(targetFmt, buf, it.type, opts, onProgress);
         it.outType = targetFmt;
       } else if (needsRescale) {

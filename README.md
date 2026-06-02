@@ -49,11 +49,12 @@ No build step, no Node.js, no server config.
 | `codecs/jpeg/mozjpeg_*` | ~490 KB | mozjpeg encode + decode (WASM). |
 | `codecs/webp/webp_*` | ~490 KB | libwebp encode + decode (WASM). |
 | `codecs/gif/gifsicle.min.js` | ~340 KB | gifsicle (inline WASM). |
+| `codecs/gif2webp/gif2webp.*` | ~400 KB | libwebp gif2webp (anim WebP, WASM). |
 | `codecs/svg/svgo.browser.js` | ~890 KB | SVGO 3 (pure JS). |
 | `.nojekyll` | 0 B | Don't filter underscored files. |
 | `.github/workflows/pages.yml` | — | Auto-deploy workflow. |
 
-Total: ~2.6 MB raw, ~1.0 MB gzip. Works fully offline after first paint.
+Total: ~3.0 MB raw, ~1.2 MB gzip. Works fully offline after first paint.
 
 The PNG compressor is built with **TinyGo** (not the standard Go
 toolchain), which shrinks the wasm from ~2.7 MB down to ~450 KB
@@ -74,6 +75,7 @@ python3 -m http.server 8000
 | JPG  | mozjpeg `-quality 70 -progressive` | **BYTE-EXACT** |
 | WebP | libwebp `cwebp -q 70` | Within ~1% |
 | GIF  | gifsicle `-O3 --lossy=80` | **BYTE-EXACT** |
+| GIF → WebP | libwebp `gif2webp` (animated, picks lossy/lossless per size) | Smaller than `gif2webp -mixed` |
 | SVG  | SVGO 3 `preset-default + multipass` | Within ~5 bytes |
 
 ## Credits

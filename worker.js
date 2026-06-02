@@ -22,6 +22,7 @@ import mozjpegEnc from './codecs/jpeg/mozjpeg_enc.js';
 import mozjpegDec from './codecs/jpeg/mozjpeg_dec.js';
 import webpEnc from './codecs/webp/webp_enc.js';
 import webpDec from './codecs/webp/webp_dec.js';
+import gif2webp from './codecs/gif2webp/gif2webp.js';
 
 let ready = false;
 let pngReady = false;
@@ -51,13 +52,14 @@ async function loadTinyGoPng() {
 
 async function init() {
   if (ready) return;
-  const [mjEnc, mjDec, wpEnc, wpDec] = await Promise.all([
+  const [mjEnc, mjDec, wpEnc, wpDec, gif2webpMod] = await Promise.all([
     mozjpegEnc({ locateFile: f => 'codecs/jpeg/' + f }),
     mozjpegDec({ locateFile: f => 'codecs/jpeg/' + f }),
     webpEnc({ locateFile: f => 'codecs/webp/' + f }),
     webpDec({ locateFile: f => 'codecs/webp/' + f }),
+    gif2webp({ locateFile: f => 'codecs/gif2webp/' + f }),
   ]);
-  core.setCodecs({ mjEnc, mjDec, wpEnc, wpDec });
+  core.setCodecs({ mjEnc, mjDec, wpEnc, wpDec, gif2webpMod });
   // PNG codec loads in parallel; mark codecs that don't need it ready now.
   await loadTinyGoPng();
   core.setCodecs({ pngCompress: globalThis.compressPNG });
@@ -79,7 +81,13 @@ self.onmessage = async (e) => {
       if (!ready) await init();
       let res, outType;
       if (op === 'convert') {
-        res = await core.convertTo(target, bytes, sourceType, opts, onProgress);
+        if (sourceType === 'gif' && target === 'webp') {
+          // Animated/transparent GIF → animated WebP (preserves frames,
+          // loop and per-frame alpha) via the gif2webp wasm codec.
+          res = await core.gifToWebp(bytes, opts, onProgress);
+        } else {
+          res = await core.convertTo(target, bytes, sourceType, opts, onProgress);
+        }
         outType = target;
       } else {
         // compress in place (same format)

@@ -12,7 +12,8 @@
 
 // Injected codec handles.
 let mjEnc = null, mjDec = null, wpEnc = null, wpDec = null;
-let pngCompress = null; // (bytes, opts, cb) => { data, stats, error }
+let pngCompress = null;  // (bytes, opts, cb) => { data, stats, error }
+let gif2webpMod = null;  // Emscripten module exposing _gif2webp_encode
 
 export function setCodecs(c) {
   if (c.mjEnc) mjEnc = c.mjEnc;
@@ -20,6 +21,65 @@ export function setCodecs(c) {
   if (c.wpEnc) wpEnc = c.wpEnc;
   if (c.wpDec) wpDec = c.wpDec;
   if (c.pngCompress) pngCompress = c.pngCompress;
+  if (c.gif2webpMod) gif2webpMod = c.gif2webpMod;
+}
+
+// gifToWebp converts an animated/transparent GIF to an animated WebP using the
+// TinyGIF→WebP module (libwebp's WebPAnimEncoder + giflib, compiled to wasm).
+// Frame timings, loop count, disposal and per-frame transparency are all
+// preserved by the underlying encoder.
+//
+// To match the quality/size tradeoff of compressor.io (which uses gif2webp's
+// -mixed/-min_size heuristic) we encode BOTH a lossy and a lossless variant
+// and return whichever is smaller. GIFs are typically small, so the double
+// encode is cheap; flat/low-colour or sharply transparent GIFs win big from
+// lossless, while photographic ones win from lossy.
+function gifToWebpBytes(bytes, opts) {
+  const M = gif2webpMod;
+  if (!M) throw new Error('gif2webp codec not loaded');
+  const heap = () => M.HEAPU8;
+
+  function encodeOnce(quality, method, lossless) {
+    const inPtr = M._malloc(bytes.length);
+    heap().set(bytes, inPtr);
+    const lenPtr = M._malloc(4);
+    let out = null;
+    try {
+      const outPtr = M._gif2webp_encode(inPtr, bytes.length, quality, method,
+                                        lossless ? 1 : 0, lenPtr);
+      const outLen = M.getValue(lenPtr, 'i32');
+      if (outPtr && outLen > 0) {
+        out = heap().slice(outPtr, outPtr + outLen);
+        M._gif2webp_free(outPtr);
+      }
+    } finally {
+      M._free(inPtr);
+      M._free(lenPtr);
+    }
+    return out;
+  }
+
+  if (opts.lossless) {
+    const ll = encodeOnce(100, 6, true);
+    if (!ll) throw new Error('gif2webp lossless encode failed');
+    return ll;
+  }
+
+  // Mixed: pick the smaller of lossy and lossless.
+  const q = (typeof opts.quality === 'number') ? opts.quality : 70;
+  const lossy = encodeOnce(q, 6, false);
+  const lossless = encodeOnce(100, 6, true);
+  if (!lossy && !lossless) throw new Error('gif2webp encode failed');
+  if (!lossy) return lossless;
+  if (!lossless) return lossy;
+  return (lossless.length < lossy.length) ? lossless : lossy;
+}
+
+export async function gifToWebp(bytes, opts, onProgress = noop) {
+  onProgress(0.1);
+  const out = gifToWebpBytes(bytes, opts);
+  onProgress(1.0);
+  return { data: out, stats: {} };
 }
 
 // ---- OffscreenCanvas helpers (work in both window and worker) --------
