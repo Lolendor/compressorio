@@ -59,16 +59,25 @@ function gifToWebpBytes(bytes, opts) {
     return out;
   }
 
+  // Method 4 (gif2webp's default), not 6: method 6 is 100x+ slower on
+  // multi-frame GIFs for only ~2-5% gain. Mixed (lossy+lossless) doubles the
+  // work, so only probe lossless for small GIFs.
+  const METHOD = 4;
+  const MIXED_MAX_BYTES = 512 * 1024;
+
   if (opts.lossless) {
-    const ll = encodeOnce(100, 6, true);
+    const ll = encodeOnce(100, METHOD, true);
     if (!ll) throw new Error('gif2webp lossless encode failed');
     return ll;
   }
 
-  // Mixed: pick the smaller of lossy and lossless.
   const q = (typeof opts.quality === 'number') ? opts.quality : 70;
-  const lossy = encodeOnce(q, 6, false);
-  const lossless = encodeOnce(100, 6, true);
+  const lossy = encodeOnce(q, METHOD, false);
+  if (bytes.length > MIXED_MAX_BYTES) {
+    if (!lossy) throw new Error('gif2webp encode failed');
+    return lossy;
+  }
+  const lossless = encodeOnce(100, METHOD, true);
   if (!lossy && !lossless) throw new Error('gif2webp encode failed');
   if (!lossy) return lossless;
   if (!lossless) return lossy;

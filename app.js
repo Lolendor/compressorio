@@ -392,6 +392,28 @@ function extractIccFromJpeg(bytes) {
 function extractIccFromPng(_bytes) { return null; }
 
 // WebP: look for ICCP chunk inside the RIFF container.
+// isAnimatedWebp reports whether a WebP is animated. Animated files start with
+// a VP8X extended header whose flag byte has bit 1 (0x02) set, and/or contain
+// an ANMF frame chunk. The single-frame @jsquash/webp decoder returns null for
+// these, so we must detect them up front instead of crashing on decoded.data.
+function isAnimatedWebp(bytes) {
+  if (!bytes || bytes.length < 16) return false;
+  // 'RIFF' .... 'WEBP'
+  if (bytes[0] !== 0x52 || bytes[1] !== 0x49 || bytes[2] !== 0x46 || bytes[3] !== 0x46) return false;
+  if (bytes[8] !== 0x57 || bytes[9] !== 0x45 || bytes[10] !== 0x42 || bytes[11] !== 0x50) return false;
+  let pos = 12;
+  while (pos + 8 <= bytes.length) {
+    const t = String.fromCharCode(bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]);
+    const len = bytes[pos+4] | (bytes[pos+5]<<8) | (bytes[pos+6]<<16) | (bytes[pos+7]<<24);
+    if (t === 'VP8X') {
+      return ((bytes[pos + 8] >> 1) & 1) === 1; // animation flag
+    }
+    if (t === 'ANMF' || t === 'ANIM') return true;
+    pos += 8 + len + (len & 1);
+  }
+  return false;
+}
+
 function extractIccFromWebp(bytes) {
   if (bytes[0] !== 0x52 || bytes[1] !== 0x49) return null;
   let pos = 12; // skip RIFF header + 'WEBP'
@@ -698,18 +720,32 @@ async function convertGifToWebp(bytes, opts, onProgress) {
     return outArr;
   };
 
+  // WebP encode method. We deliberately use 4 (gif2webp's own default) rather
+  // than 6: on multi-frame GIFs method 6 is 100x+ slower (a 53-frame 1.6 MB
+  // GIF took >2 minutes and looked like a hang) while only saving ~2-5%.
+  const METHOD = 4;
+  // Encoding both a lossy and a lossless variant ("mixed") doubles the work.
+  // Only worth it for small GIFs; above this input size we skip the lossless
+  // probe to keep conversion snappy (large GIFs are almost always
+  // photographic and win from lossy anyway).
+  const MIXED_MAX_BYTES = 512 * 1024;
+
   let out;
   if (opts.lossless) {
-    out = encodeOnce(100, 6, true);
+    out = encodeOnce(100, METHOD, true);
   } else {
     onProgress(0.4);
     const q = (typeof opts.quality === 'number') ? opts.quality : 70;
-    const lossy = encodeOnce(q, 6, false);
+    const lossy = encodeOnce(q, METHOD, false);
     onProgress(0.7);
-    const lossless = encodeOnce(100, 6, true);
-    out = (!lossy) ? lossless
-        : (!lossless) ? lossy
-        : (lossless.length < lossy.length ? lossless : lossy);
+    if (bytes.length <= MIXED_MAX_BYTES) {
+      const lossless = encodeOnce(100, METHOD, true);
+      out = (!lossy) ? lossless
+          : (!lossless) ? lossy
+          : (lossless.length < lossy.length ? lossless : lossy);
+    } else {
+      out = lossy;
+    }
   }
   if (!out) throw new Error('GIF→WebP encode failed');
   onProgress(1.0);
@@ -1111,6 +1147,22 @@ async function processOne(it) {
       it.progress = p;
       renderRow_inplace(it);
     };
+
+    // Animated WebP can't go through our single-frame libwebp pipeline (the
+    // @jsquash decoder returns null for animated input, which used to crash
+    // with "Cannot read properties of null"). We have no animated-WebP
+    // re-encoder, so pass the original bytes through untouched instead of
+    // erroring. (A future improvement could re-run it through gif2webp-style
+    // anim encoding.)
+    if (it.type === 'webp' && isAnimatedWebp(buf)) {
+      it.outBytes = buf;
+      it.outType = 'webp';
+      it.status = 'done';
+      it.progress = 1;
+      renderRow_inplace(it);
+      updateSummary();
+      return;
+    }
 
     // Decide whether to transcode to a different output format.
     // GIF → WebP is allowed and produces an ANIMATED, transparency-preserving
