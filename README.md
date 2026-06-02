@@ -49,7 +49,7 @@ No build step, no Node.js, no server config.
 | `codecs/jpeg/mozjpeg_*` | ~490 KB | mozjpeg encode + decode (WASM). |
 | `codecs/webp/webp_*` | ~490 KB | libwebp encode + decode (WASM). |
 | `codecs/gif/gifsicle.min.js` | ~340 KB | gifsicle (inline WASM). |
-| `codecs/gif2webp/gif2webp.*` | ~400 KB | libwebp gif2webp (anim WebP, WASM). |
+| `codecs/gif2webp/gif2webp.*` | ~400 KB | libwebp gif2webp + anim WebP recompress (WASM). |
 | `codecs/svg/svgo.browser.js` | ~890 KB | SVGO 3 (pure JS). |
 | `.nojekyll` | 0 B | Don't filter underscored files. |
 | `.github/workflows/pages.yml` | — | Auto-deploy workflow. |
@@ -76,6 +76,7 @@ python3 -m http.server 8000
 | WebP | libwebp `cwebp -q 70` | Within ~1% |
 | GIF  | gifsicle `-O3 --lossy=80` | **BYTE-EXACT** |
 | GIF → WebP | libwebp `gif2webp` (animated, picks lossy/lossless per size) | Smaller than `gif2webp -mixed` |
+| Animated WebP | libwebp `WebPAnimDecoder` → `WebPAnimEncoder` re-encode (keeps original if it'd grow) | Matches `img2webp` |
 | SVG  | SVGO 3 `preset-default + multipass` | Within ~5 bytes |
 
 ## Credits

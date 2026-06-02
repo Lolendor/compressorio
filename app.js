@@ -752,6 +752,38 @@ async function convertGifToWebp(bytes, opts, onProgress) {
   return { data: out, stats: {} };
 }
 
+// recompressAnimatedWebp shrinks an animated WebP by fully decoding every
+// frame (WebPAnimDecoder) and re-encoding the animation (WebPAnimEncoder) at
+// the requested quality — frames, timings, loop and alpha are preserved. Uses
+// method 4 for speed on multi-frame files (see convertGifToWebp).
+async function recompressAnimatedWebp(bytes, opts, onProgress) {
+  onProgress(0.1); await new Promise(r => setTimeout(r, 10));
+  const M = gif2webpMod;
+  if (!M) throw new Error('WebP recompression codec still loading, try again in a moment');
+
+  const q = opts.lossless ? 100 : ((typeof opts.quality === 'number') ? opts.quality : 70);
+  const inPtr = M._malloc(bytes.length);
+  M.HEAPU8.set(bytes, inPtr);
+  const lenPtr = M._malloc(4);
+  let out = null;
+  try {
+    onProgress(0.4);
+    const outPtr = M._webp2webp_encode(inPtr, bytes.length, q, 4,
+                                       opts.lossless ? 1 : 0, lenPtr);
+    const outLen = M.getValue(lenPtr, 'i32');
+    if (outPtr && outLen > 0) {
+      out = M.HEAPU8.slice(outPtr, outPtr + outLen);
+      M._gif2webp_free(outPtr);
+    }
+  } finally {
+    M._free(inPtr);
+    M._free(lenPtr);
+  }
+  if (!out) throw new Error('animated WebP re-encode failed');
+  onProgress(1.0);
+  return { data: out, stats: {} };
+}
+
 async function compressSvg(bytes, opts, onProgress) {
   onProgress(0.2); await new Promise(r => setTimeout(r, 10));
   const text = new TextDecoder('utf-8').decode(bytes);
@@ -1149,13 +1181,27 @@ async function processOne(it) {
     };
 
     // Animated WebP can't go through our single-frame libwebp pipeline (the
-    // @jsquash decoder returns null for animated input, which used to crash
-    // with "Cannot read properties of null"). We have no animated-WebP
-    // re-encoder, so pass the original bytes through untouched instead of
-    // erroring. (A future improvement could re-run it through gif2webp-style
-    // anim encoding.)
+    // @jsquash decoder returns null for animated input). Instead we re-encode
+    // the whole animation with the gif2webp codec's WebPAnimDecoder→Encoder
+    // path, preserving frames / timings / loop / alpha. If the user is
+    // transcoding to a non-WebP format we can't help (animation would be
+    // lost), so pass the original through. Likewise if re-encoding ends up
+    // bigger than the source (already-optimised files), keep the original.
     if (it.type === 'webp' && isAnimatedWebp(buf)) {
-      it.outBytes = buf;
+      const keepWebp = (outputFormat === 'original' || outputFormat === 'webp');
+      if (keepWebp) {
+        try {
+          const r = await recompressAnimatedWebp(buf, opts, onProgress);
+          let outB = r.data;
+          if (mode !== 'custom' && outB.byteLength >= buf.byteLength) outB = buf;
+          it.outBytes = outB;
+        } catch (e) {
+          console.error('animated webp recompress failed:', e && e.message);
+          it.outBytes = buf; // never crash the row — ship the original
+        }
+      } else {
+        it.outBytes = buf;
+      }
       it.outType = 'webp';
       it.status = 'done';
       it.progress = 1;
