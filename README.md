@@ -45,7 +45,7 @@ No build step, no Node.js, no server config.
 | `codec-core.js` | ~19 KB | Shared compression core (main + worker). |
 | `worker.js` | ~4 KB | Web Worker for parallel raster compression. |
 | `codecs/png/wasm_exec.js` | ~17 KB | TinyGo runtime glue. |
-| `codecs/png/compressor.wasm` | ~420 KB | TinyGo PNG compressor (Wu + Floyd-Steinberg). |
+| `codecs/png/compressor.wasm` | ~450 KB | TinyGo PNG compressor (Wu + Floyd-Steinberg). |
 | `codecs/jpeg/mozjpeg_*` | ~490 KB | mozjpeg encode + decode (WASM). |
 | `codecs/webp/webp_*` | ~490 KB | libwebp encode + decode (WASM). |
 | `codecs/gif/gifsicle.min.js` | ~340 KB | gifsicle (inline WASM). |
@@ -56,8 +56,8 @@ No build step, no Node.js, no server config.
 Total: ~2.6 MB raw, ~1.0 MB gzip. Works fully offline after first paint.
 
 The PNG compressor is built with **TinyGo** (not the standard Go
-toolchain), which shrinks the wasm from ~2.7 MB down to ~420 KB
-(~160 KB gzipped) for byte-identical output.
+toolchain), which shrinks the wasm from ~2.7 MB down to ~450 KB
+(~190 KB gzipped) for byte-identical output.
 
 ## Local preview
 
