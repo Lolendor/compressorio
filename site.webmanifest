@@ -1,7 +1,7 @@
 {
-  "name": "Compressor — Free Online Image Compression",
-  "short_name": "Compressor",
-  "description": "Free in-browser image compressor for JPG, PNG, WebP, GIF and SVG. 100% client-side.",
+  "name": "Compressorio — Free Online Image Compressor",
+  "short_name": "Compressorio",
+  "description": "Compress JPG, PNG, WebP, GIF and SVG images for free in your browser. No uploads or signup. Adjust quality, convert formats and download files in bulk.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
