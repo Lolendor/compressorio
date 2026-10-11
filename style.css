@@ -325,6 +325,39 @@
     font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
     line-height: 1;
   }
+  .footer-about {
+    max-width: 1020px; margin: 24px auto 0;
+    background: white; border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow); text-align: left; line-height: 1.7;
+  }
+  .footer-about summary {
+    display: flex; align-items: center; gap: 12px;
+    padding: 18px 24px; border-radius: 12px;
+    cursor: pointer; list-style: none;
+    transition: background .15s;
+  }
+  .footer-about summary::-webkit-details-marker { display: none; }
+  .footer-about summary:hover { background: var(--pink-bg); }
+  .footer-about summary:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+  .footer-about-label { color: var(--text); font-size: 14px; font-weight: 800; }
+  .footer-about-hint { color: var(--text-muted); font-size: 12px; }
+  .footer-about-chevron { flex-shrink: 0; margin-left: auto; color: var(--red); }
+  .footer-about[open] summary { border-radius: 12px 12px 0 0; border-bottom: 1px solid var(--border); }
+  .footer-about[open] .footer-about-chevron { transform: rotate(180deg); }
+  .footer-about-content { padding: 24px; font-size: 14px; }
+  .footer-about-intro { max-width: 780px; margin-bottom: 24px; }
+  .footer-about h2 { margin: 0 0 10px; color: var(--text); font-size: 21px; line-height: 1.35; }
+  .footer-about h3 { margin: 0 0 8px; color: var(--text); font-size: 15px; line-height: 1.5; }
+  .footer-about p { margin: 0; }
+  .footer-about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px 32px; }
+  .footer-about ul, .footer-about ol { margin: 0; padding-left: 20px; }
+  .footer-about li + li { margin-top: 6px; }
+  .footer-about strong { color: var(--text); }
+  .footer-about a { color: var(--red-dark); text-underline-offset: 3px; }
+  .footer-about a:hover { color: var(--text); }
+  .footer-about .footer-about-note {
+    margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 12px;
+  }
 
   /* ===== Responsive ===== */
 
@@ -426,6 +459,13 @@
     .tri { width: 75vw; height: 75vw; opacity: 0.85; }
 
     footer { padding: 24px 14px 20px; font-size: 11px; line-height: 1.6; }
+    .footer-about { margin-top: 20px; }
+    .footer-about summary { flex-wrap: wrap; gap: 2px 12px; padding: 16px; }
+    .footer-about-label { flex: 1; }
+    .footer-about-hint { order: 1; flex-basis: 100%; }
+    .footer-about-content { padding: 20px 16px; }
+    .footer-about h2 { font-size: 19px; }
+    .footer-about-grid { grid-template-columns: 1fr; gap: 24px; }
   }
 
   /* Very small phones */
